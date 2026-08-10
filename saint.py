@@ -31,7 +31,8 @@ def iniciar_chat():
             enviar(s)
         except:
             print("Não foi possível conectar. O servidor está ligado?")
-
+print("\n" * 100)
+    
 def receber(conexao):
     while True:
         try:
