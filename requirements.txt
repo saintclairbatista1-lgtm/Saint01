@@ -1,6 +1,6 @@
 Flask
 PyJWT
 gunicorn
-uvicorn
+
 
 
