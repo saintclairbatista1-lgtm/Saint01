@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: saint01
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn saint:app
