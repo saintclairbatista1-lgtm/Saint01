@@ -1,3 +1,6 @@
-gunicorn 
-saint:app
+Flask
+PyJWT
+gunicorn
+uvicorn
+
 
