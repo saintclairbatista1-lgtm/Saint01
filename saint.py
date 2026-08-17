@@ -6,7 +6,6 @@ import json
 
 app = FastAPI()
 
-# Definição do modelo de transação financeira
 class Transaction(BaseModel):
     asset_type: str
     amount: float
@@ -14,7 +13,6 @@ class Transaction(BaseModel):
     wallet_to: str
     digital_signature: str
 
-# Definição do modelo para o S Message
 class SecureMessage(BaseModel):
     sender: str
     recipient: str
@@ -31,7 +29,6 @@ async def secure_transfer(transaction: Transaction):
         "wallet_from": transaction.wallet_from,
         "wallet_to": transaction.wallet_to
     }
-    
     payload_json = json.dumps(payload, sort_keys=True, separators=(',', ':'))
     expected_signature = hmac.new(
         MILITARY_GRADE_SECRET, 
@@ -46,13 +43,11 @@ async def secure_transfer(transaction: Transaction):
 
 @app.post("/api/v1/messages/send")
 async def send_secure_message(message: SecureMessage):
-    # Serialização estrita para validar a integridade da mensagem
     payload = {
         "content": message.content,
         "recipient": message.recipient,
         "sender": message.sender
     }
-    
     payload_json = json.dumps(payload, sort_keys=True, separators=(',', ':'))
     expected_signature = hmac.new(
         MILITARY_GRADE_SECRET, 
@@ -64,7 +59,8 @@ async def send_secure_message(message: SecureMessage):
          raise HTTPException(status_code=400, detail="Falha de integridade: A assinatura digital da mensagem não confere ou foi adulterada.")
     
     return {"status": "200 OK", "delivery": "Mensagem criptografada entregue com segurança no S Message!"}
-    @app.post("/api/v1/messages/sign")
+
+@app.post("/api/v1/messages/sign")
 async def sign_message(message: SecureMessage):
     payload = {
         "content": message.content,
@@ -78,4 +74,3 @@ async def sign_message(message: SecureMessage):
         hashlib.sha256
     ).hexdigest()
     return {"signature": expected_signature}
-
