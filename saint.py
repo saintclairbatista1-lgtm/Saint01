@@ -64,3 +64,18 @@ async def send_secure_message(message: SecureMessage):
          raise HTTPException(status_code=400, detail="Falha de integridade: A assinatura digital da mensagem não confere ou foi adulterada.")
     
     return {"status": "200 OK", "delivery": "Mensagem criptografada entregue com segurança no S Message!"}
+    @app.post("/api/v1/messages/sign")
+async def sign_message(message: SecureMessage):
+    payload = {
+        "content": message.content,
+        "recipient": message.recipient,
+        "sender": message.sender
+    }
+    payload_json = json.dumps(payload, sort_keys=True, separators=(',', ':'))
+    expected_signature = hmac.new(
+        MILITARY_GRADE_SECRET, 
+        payload_json.encode('utf-8'), 
+        hashlib.sha256
+    ).hexdigest()
+    return {"signature": expected_signature}
+
