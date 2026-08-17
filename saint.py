@@ -113,14 +113,4 @@ async def dispatch_supplier_order(order: DropshippingOrder):
         "defcon_level": "DEFCON 1",
         "dispatch_status": "Ordem despachada com segurança máxima para o fornecedor na China."
     }
-class OalicModule:
-    def __init__(self, name="Oalic"):
-        self.name = name
-        self.registry = {}
-
-    def add_component(self, key, value):
-        self.registry[key] = value
-        return True
-
-    def get_components(self):
-        return self.registry
+class 
