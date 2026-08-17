@@ -1,34 +1,28 @@
-from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel
-import hmac
-import hashlib
-import json
+# [Mantenha seus imports no topo]
 
-app = FastAPI()
+# [Mantenha suas classes existentes: Transaction, SecureMessage]
 
-class Transaction(BaseModel):
-    asset_type: str
-    amount: float
-    wallet_from: str
-    wallet_to: str
+class DropshippingOrder(BaseModel):
+    supplier_id: str
+    client_destination: str
+    sku_code: str
+    quantity: int
+    unit_price_usd: float
     digital_signature: str
 
-class SecureMessage(BaseModel):
-    sender: str
-    recipient: str
-    content: str
-    digital_signature: str
+# [Mantenha suas rotas existentes: /payments/b2b/secure-transfer, /messages/send, /messages/sign]
 
-MILITARY_GRADE_SECRET = b"s-message-secure-master-key-2026"
-
-@app.post("/api/v1/payments/b2b/secure-transfer")
-async def secure_transfer(transaction: Transaction):
+@app.post("/api/v1/dropshipping/dispatch")
+async def dispatch_supplier_order(order: DropshippingOrder):
+    # Lógica de validação com a mesma chave secreta
     payload = {
-        "asset_type": transaction.asset_type,
-        "amount": transaction.amount,
-        "wallet_from": transaction.wallet_from,
-        "wallet_to": transaction.wallet_to
+        "client_destination": order.client_destination,
+        "quantity": order.quantity,
+        "sku_code": order.sku_code,
+        "supplier_id": order.supplier_id,
+        "unit_price_usd": order.unit_price_usd
     }
+    
     payload_json = json.dumps(payload, sort_keys=True, separators=(',', ':'))
     expected_signature = hmac.new(
         MILITARY_GRADE_SECRET, 
@@ -36,43 +30,14 @@ async def secure_transfer(transaction: Transaction):
         hashlib.sha256
     ).hexdigest()
     
-    if transaction.digital_signature != expected_signature:
-         raise HTTPException(status_code=400, detail="Falha de integridade: A assinatura digital da transação não confere ou foi adulterada.")
+    if order.digital_signature != expected_signature:
+         raise HTTPException(
+             status_code=400, 
+             detail="DEFCON 1: Falha crítica de integridade na ordem de fornecimento internacional!"
+         )
     
-    return {"status": "200 OK", "message": "Transferência realizada com sucesso!"}
-
-@app.post("/api/v1/messages/send")
-async def send_secure_message(message: SecureMessage):
-    # Usando exatamente a mesma ordem baseada nos campos do modelo
-    payload = {
-        "sender": message.sender,
-        "recipient": message.recipient,
-        "content": message.content
+    return {
+        "status": "200 OK",
+        "defcon_level": "DEFCON 1",
+        "dispatch_status": "Ordem despachada com segurança máxima para o fornecedor na China."
     }
-    payload_json = json.dumps(payload, sort_keys=True, separators=(',', ':'))
-    expected_signature = hmac.new(
-        MILITARY_GRADE_SECRET, 
-        payload_json.encode('utf-8'), 
-        hashlib.sha256
-    ).hexdigest()
-    
-    if message.digital_signature != expected_signature:
-         raise HTTPException(status_code=400, detail="Falha de integridade: A assinatura digital da mensagem não confere ou foi adulterada.")
-    
-    return {"status": "200 OK", "delivery": "Mensagem criptografada entregue com segurança no S Message!"}
-
-@app.post("/api/v1/messages/sign")
-async def sign_message(message: SecureMessage):
-    # Mesma ordem exata do send_secure_message
-    payload = {
-        "sender": message.sender,
-        "recipient": message.recipient,
-        "content": message.content
-    }
-    payload_json = json.dumps(payload, sort_keys=True, separators=(',', ':'))
-    expected_signature = hmac.new(
-        MILITARY_GRADE_SECRET, 
-        payload_json.encode('utf-8'), 
-        hashlib.sha256
-    ).hexdigest()
-    return {"signature": expected_signature}
