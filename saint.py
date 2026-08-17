@@ -182,3 +182,23 @@ async def make_deposit(user_id: str, payload: DepositRequest):
 
 # Registra o router na aplicação principal
 app.include_router(router)
+from fastapi import FastAPI
+
+
+# Função para listar todas as rotas ativas na aplicação
+def map_app_routes(app: FastAPI):
+  routes_info = []
+  for route in app.routes:
+    if hasattr(route, "methods") and hasattr(route, "path"):
+      for method in route.methods:
+        routes_info.append({"method": method, "path": route.path})
+  return routes_info
+
+
+# Exemplo de endpoint para visualizar o mapeamento diretamente via API
+# (Basta incluir este router ou função no seu app principal)
+
+
+@app.get("/api/v1/system/routes")
+async def list_routes():
+  return {"total_routes": len(app.routes), "routes": map_app_routes(app)}
