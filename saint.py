@@ -43,10 +43,11 @@ async def secure_transfer(transaction: Transaction):
 
 @app.post("/api/v1/messages/send")
 async def send_secure_message(message: SecureMessage):
+    # Usando exatamente a mesma ordem baseada nos campos do modelo
     payload = {
-        "content": message.content,
+        "sender": message.sender,
         "recipient": message.recipient,
-        "sender": message.sender
+        "content": message.content
     }
     payload_json = json.dumps(payload, sort_keys=True, separators=(',', ':'))
     expected_signature = hmac.new(
@@ -62,10 +63,11 @@ async def send_secure_message(message: SecureMessage):
 
 @app.post("/api/v1/messages/sign")
 async def sign_message(message: SecureMessage):
+    # Mesma ordem exata do send_secure_message
     payload = {
-        "content": message.content,
+        "sender": message.sender,
         "recipient": message.recipient,
-        "sender": message.sender
+        "content": message.content
     }
     payload_json = json.dumps(payload, sort_keys=True, separators=(',', ':'))
     expected_signature = hmac.new(
