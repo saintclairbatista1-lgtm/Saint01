@@ -114,3 +114,42 @@ async def dispatch_supplier_order(order: DropshippingOrder):
         "dispatch_status": "Ordem despachada com segurança máxima para o fornecedor na China."
     }
 class 
+from datetime import datetime
+
+class SaintPayWallet:
+    def __init__(self, user_id: str, initial_balance: float = 0.0):
+        self.user_id = user_id
+        self.balance = float(initial_balance)
+        self.transactions = []
+
+    def deposit(self, amount: float) -> bool:
+        if amount <= 0:
+            raise ValueError("O valor do depósito deve ser maior que zero.")
+        
+        self.balance += amount
+        self._log_transaction("DEPOSIT", amount)
+        return True
+
+    def withdraw(self, amount: float) -> bool:
+        if amount <= 0:
+            raise ValueError("O valor do saque deve ser maior que zero.")
+        if amount > self.balance:
+            raise ValueError("Saldo insuficiente.")
+        
+        self.balance -= amount
+        self._log_transaction("WITHDRAW", amount)
+        return True
+
+    def get_balance(self) -> float:
+        return self.balance
+
+    def get_statement(self) -> list:
+        return self.transactions
+
+    def _log_transaction(self, tx_type: str, amount: float):
+        self.transactions.append({
+            "type": tx_type,
+            "amount": amount,
+            "balance_after": self.balance,
+            "timestamp": datetime.utcnow().isoformat()
+        })
