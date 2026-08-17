@@ -6,7 +6,7 @@ import json
 
 app = FastAPI()
 
-# Definição do modelo de transação
+# Definição do modelo de transação financeira
 class Transaction(BaseModel):
     asset_type: str
     amount: float
@@ -14,11 +14,17 @@ class Transaction(BaseModel):
     wallet_to: str
     digital_signature: str
 
+# Definição do modelo para o S Message
+class SecureMessage(BaseModel):
+    sender: str
+    recipient: str
+    content: str
+    digital_signature: str
+
 MILITARY_GRADE_SECRET = b"s-message-secure-master-key-2026"
 
 @app.post("/api/v1/payments/b2b/secure-transfer")
 async def secure_transfer(transaction: Transaction):
-    # Serialização do payload para validação (formatado estritamente)
     payload = {
         "asset_type": transaction.asset_type,
         "amount": transaction.amount,
@@ -26,22 +32,35 @@ async def secure_transfer(transaction: Transaction):
         "wallet_to": transaction.wallet_to
     }
     
-    # Ordenação das chaves e serialização compacta para gerar a assinatura
     payload_json = json.dumps(payload, sort_keys=True, separators=(',', ':'))
-    
-    # Cálculo do HMAC-SHA256
     expected_signature = hmac.new(
         MILITARY_GRADE_SECRET, 
         payload_json.encode('utf-8'), 
         hashlib.sha256
     ).hexdigest()
     
-    # Comparação para debug (para o log do Render)
-    print(f"DEBUG: Recebido: {transaction.digital_signature}")
-    print(f"DEBUG: Esperado: {expected_signature}")
-    
-    # Verificação de integridade (Remova/comente o raise abaixo para ignorar a validação em testes)
     if transaction.digital_signature != expected_signature:
          raise HTTPException(status_code=400, detail="Falha de integridade: A assinatura digital da transação não confere ou foi adulterada.")
     
     return {"status": "200 OK", "message": "Transferência realizada com sucesso!"}
+
+@app.post("/api/v1/messages/send")
+async def send_secure_message(message: SecureMessage):
+    # Serialização estrita para validar a integridade da mensagem
+    payload = {
+        "content": message.content,
+        "recipient": message.recipient,
+        "sender": message.sender
+    }
+    
+    payload_json = json.dumps(payload, sort_keys=True, separators=(',', ':'))
+    expected_signature = hmac.new(
+        MILITARY_GRADE_SECRET, 
+        payload_json.encode('utf-8'), 
+        hashlib.sha256
+    ).hexdigest()
+    
+    if message.digital_signature != expected_signature:
+         raise HTTPException(status_code=400, detail="Falha de integridade: A assinatura digital da mensagem não confere ou foi adulterada.")
+    
+    return {"status": "200 OK", "delivery": "Mensagem criptografada entregue com segurança no S Message!"}
