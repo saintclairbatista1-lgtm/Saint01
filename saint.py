@@ -152,3 +152,33 @@ class SaintPayWallet:
             "balance_after": self.balance,
             "timestamp": datetime.utcnow().isoformat()
         })
+from fastapi import APIRouter, FastAPI, HTTPException, status
+from pydantic import BaseModel
+
+app = FastAPI(title="S Message API")
+
+# Router para pagamentos e carteira com o prefixo correto
+router = APIRouter(prefix="/api/v1/payments", tags=["Payments & Wallet"])
+
+
+class DepositRequest(BaseModel):
+  amount: float
+  signature: str
+
+
+@router.get("/wallet/{user_id}/statement")
+async def get_wallet_statement(user_id: str):
+  return {"user_id": user_id, "balance": 0.0, "transactions": []}
+
+
+@router.post("/wallet/{user_id}/deposit")
+async def make_deposit(user_id: str, payload: DepositRequest):
+  return {
+      "status": "success",
+      "user_id": user_id,
+      "deposited_amount": payload.amount,
+  }
+
+
+# Registra o router na aplicação principal
+app.include_router(router)
