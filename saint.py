@@ -191,7 +191,7 @@ app = FastAPI(title="S Message API")
 
 # --- Configuração de Segurança ---
 # Mude este segredo para algo único e seguro
-ADMIN_SECRET = "S@int#001"
+ADMIN_SECRET = ""
 
 def verify_admin(x_admin_token: str = Header(...)):
     if x_admin_token != ADMIN_SECRET:
