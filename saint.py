@@ -1,67 +1,49 @@
-from fastapi import APIRouter, FastAPI, HTTPException, Depends, Header
+
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
-from typing import List
-from datetime import date
+import hmac
+import hashlib
+import json
 
-app = FastAPI(title="S Message API")
+app = FastAPI()
 
-# --- Configuração de Segurança ---
-ADMIN_SECRET = "S@int#001"
-
-def verify_admin(x_admin_token: str = Header(...)):
-    if x_admin_token != ADMIN_SECRET:
-        raise HTTPException(status_code=403, detail="Acesso negado: Token inválido.")
-
-# --- Router de Pagamentos ---
-payments_router = APIRouter(prefix="/api/v1/payments", tags=["Payments & Wallet"])
-
-class DepositRequest(BaseModel):
+# Definição do modelo de transação
+class Transaction(BaseModel):
+    asset_type: str
     amount: float
-    signature: str
+    wallet_from: str
+    wallet_to: str
+    digital_signature: str
 
-@payments_router.get("/wallet/{user_id}/statement")
-async def get_wallet_statement(user_id: str):
-    return {"user_id": user_id, "balance": 0.0, "transactions": []}
+MILITARY_GRADE_SECRET = b"s-message-secure-master-key-2026"
 
-@payments_router.post("/wallet/{user_id}/deposit")
-async def make_deposit(user_id: str, payload: DepositRequest):
-    return {"status": "success", "user_id": user_id, "deposited_amount": payload.amount}
+@app.post("/api/v1/payments/b2b/secure-transfer")
+async def secure_transfer(transaction: Transaction):
+    # Serialização do payload para validação (formatado estritamente)
+    payload = {
+        "asset_type": transaction.asset_type,
+        "amount": transaction.amount,
+        "wallet_from": transaction.wallet_from,
+        "wallet_to": transaction.wallet_to
+    }
+    
+    # Ordenação das chaves e serialização compacta para gerar a assinatura
+    payload_json = json.dumps(payload, sort_keys=True, separators=(',', ':'))
+    
+    # Cálculo do HMAC-SHA256
+    expected_signature = hmac.new(
+        MILITARY_GRADE_SECRET, 
+        payload_json.encode('utf-8'), 
+        hashlib.sha256
+    ).hexdigest()
+    
+    # Comparação para debug (para o log do Render)
+    print(f"DEBUG: Recebido: {transaction.digital_signature}")
+    print(f"DEBUG: Esperado: {expected_signature}")
+    
+    # Verificação de integridade (Remova/comente o raise abaixo para ignorar a validação em testes)
+    if transaction.digital_signature != expected_signature:
+         raise HTTPException(status_code=400, detail="Falha de integridade: A assinatura digital da transação não confere ou foi adulterada.")
+    
+    return {"status": "200 OK", "message": "Transferência realizada com sucesso!"}
 
-app.include_router(payments_router)
-
-# --- Utilitário de Mapeamento Protegido ---
-def map_app_routes(app: FastAPI):
-    routes_info = []
-    for route in app.routes:
-        if hasattr(route, "methods") and hasattr(route, "path"):
-            for method in route.methods:
-                routes_info.append({"method": method, "path": route.path})
-    return routes_info
-
-@app.get("/api/v1/system/routes", dependencies=[Depends(verify_admin)])
-async def list_routes():
-    return {"total_routes": len(app.routes), "routes": map_app_routes(app)}
-
-# --- Router de BPO Financeiro ---
-bpo_router = APIRouter(prefix="/api/v1/bpo", tags=["BPO Financeiro"])
-
-class FinancialTransaction(BaseModel):
-    description: str
-    amount: float
-    type: str
-    due_date: date
-    status: str = "pendente"
-
-@bpo_router.get("/transactions", dependencies=[Depends(verify_admin)])
-async def list_bpo_transactions():
-    return {"status": "success", "managed_transactions": []}
-
-@bpo_router.post("/transactions", dependencies=[Depends(verify_admin)])
-async def create_bpo_transaction(transaction: FinancialTransaction):
-    return {"message": "Transação registrada com sucesso", "data": transaction}
-
-@bpo_router.get("/reports/closing/{client_id}", dependencies=[Depends(verify_admin)])
-async def get_monthly_closing(client_id: str):
-    return {"client_id": client_id, "status": "Em andamento"}
-
-app.include_router(bpo_router)
