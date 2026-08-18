@@ -194,7 +194,7 @@ app = FastAPI(title="S Message API")
 ADMIN_SECRET = ""
 
 def verify_admin(x_admin_token: str = Header(...)):
-    if x_admin_token != ADMIN_SECRET:
+    if x_admin_token != ADMIN_SECRET:'@Saint#08'
         raise HTTPException(status_code=403, detail="Acesso negado: Token inválido.")
 
 # --- Router de Pagamentos ---
