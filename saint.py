@@ -174,8 +174,6 @@ async def make_deposit(user_id: str, payload: DepositRequest):
       "user_id": user_id,
       "deposited_amount": payload.amount,
   }
-
-
 # Registra o router na aplicação principal
 app.include_router(router)
 from fastapi import FastAPI
@@ -192,14 +190,12 @@ ADMIN_SECRET = ""
 def verify_admin(x_admin_token: str = Header(...)):
     if x_admin_token != ADMIN_SECRET:'@Saint#08'
         raise HTTPException(status_code=403, detail="Acesso negado: Token inválido.")
-
 # --- Router de Pagamentos ---
 payments_router = APIRouter(prefix="/api/v1/payments", tags=["Payments & Wallet"])
 
 class DepositRequest(BaseModel):
     amount: float
     signature: str
-
 @payments_router.get("/wallet/{user_id}/statement")
 async def get_wallet_statement(user_id: str):
     return {"user_id": user_id, "balance": 0.0, "transactions": []}
@@ -232,9 +228,8 @@ app = FastAPI(title="S Message API")
 # --- Configuração de Segurança ---
 ADMIN_SECRET = "S@int#001"
 
+: Token inválido.")
 def verify_admin(x_admin_token: str = Header(...)):
-    if x_admin_token != ADMIN_SECRET:
-        raise HTTPException(status_code=403, detail="Acesso negado: Token inválido.")
 
 # --- Router de Pagamentos ---
 payments_router = APIRouter(prefix="/api/v1/payments", tags=["Payments & Wallet"])
