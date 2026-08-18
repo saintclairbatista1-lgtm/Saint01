@@ -3,19 +3,15 @@ from pydantic import BaseModel
 import hmac
 import hashlib
 import json
-
 app = FastAPI()
-
 # Chave secreta de blindagem DEFCON 1
 MILITARY_GRADE_SECRET = b"s-message-secure-master-key-2026"
-
 # Modelos de Dados
 class Transaction(BaseModel):
-    sender: str
+    sender: st
     recipient: str
     amount: float
     digital_signature: str
-
 class SecureMessage(BaseModel):
     sender: str
     recipient: str
