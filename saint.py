@@ -3,6 +3,7 @@ import json
 import time
 import hmac
 import hashlib
+import sqlite3
 import numpy as np
 import cv2
 from collections import defaultdict
@@ -12,24 +13,59 @@ from pydantic import BaseModel, Field
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 # ==========================================
-# 0. MICROPROCESSADOR PROPRIETÁRIO 500-BYTE (EMULADOR DE HARDWARE)
+# 0. CONFIGURAÇÃO DO BANCO DE DADOS SQLITE
+# ==========================================
+DB_FILE = "s_message_ledger.db"
+
+def init_db():
+    """Cria a tabela do Ledger no SQLite se ela não existir."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS ledger (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            block_index INTEGER UNIQUE,
+            timestamp REAL,
+            payload TEXT,
+            previous_hash TEXT,
+            block_hash TEXT
+        )
+    ''')
+    conn.commit()
+    
+    # Verifica se já existe o Bloco Gênesis
+    cursor.execute('SELECT COUNT(*) FROM ledger')
+    if cursor.fetchone()[0] == 0:
+        genesis_payload = "Genesis Block (Hardware Virtual 500-Byte + SQLite)"
+        genesis_hash = "0" * 128
+        cursor.execute('''
+            INSERT INTO ledger (block_index, timestamp, payload, previous_hash, block_hash)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (0, 0.0, genesis_payload, genesis_hash, genesis_hash))
+        conn.commit()
+    conn.close()
+
+# Inicializa o banco de dados ao carregar o script
+init_db()
+
+
+# ==========================================
+# 1. MICROPROCESSADOR PROPRIETÁRIO 500-BYTE (EMULADOR DE HARDWARE)
 # ==========================================
 class Custom500ByteProcessor:
     """
     Emulador de Microprocessador de 500 bytes (4.000 bits) para autonomia criptográfica máxima na nuvem.
-    Opera com registradores de alta capacidade dedicados ao S Message.
     """
     def __init__(self):
         self.registers = {
-            "R0": b"\x00" * 500,  # Acumulador de dados estendido (500 bytes)
-            "R1": b"\x00" * 500,  # Registrador de Chave / Buffer Mestre (500 bytes)
-            "R2": b"\x00" * 12,   # Nonce / Vetor de Inicialização (12 bytes para GCM)
-            "FLAGS": 0x00        # Status do processador
+            "R0": b"\x00" * 500,
+            "R1": b"\x00" * 500,
+            "R2": b"\x00" * 12,
+            "FLAGS": 0x00
         }
         self.is_initialized = False
 
     def load_master_buffer(self, input_bytes: bytes):
-        """Carrega e estende os dados para preencher exatamente o registrador de 500 bytes."""
         padded_buffer = bytearray()
         seed = input_bytes
         while len(padded_buffer) < 500:
@@ -41,48 +77,37 @@ class Custom500ByteProcessor:
         self.registers["FLAGS"] = 0x01
 
     def execute_aes_encrypt(self, plaintext_bytes: bytes, nonce_bytes: bytes) -> dict:
-        """Executa cifragem AES-256 utilizando os primeiros 32 bytes do buffer de 500 bytes do registrador R1."""
         if not self.is_initialized:
-            raise RuntimeError("Erro de Hardware Virtual: Processador de 500 bytes não inicializado.")
+            raise RuntimeError("Erro de Hardware Virtual: Processador não inicializado.")
         
         aes_key_segment = self.registers["R1"][:32]
         aesgcm = AESGCM(aes_key_segment)
         
         ciphertext = aesgcm.encrypt(nonce_bytes, plaintext_bytes, None)
         return {
-            "processor_status": "OK (500-Byte ALU Active)",
+            "processor_status": "OK (500-Byte ALU Active + SQLite)",
             "ciphertext_hex": ciphertext.hex(),
             "nonce_hex": nonce_bytes.hex(),
             "register_capacity": "500 Bytes (4000 bits)"
         }
 
     def execute_custom_hash(self, data_string: str) -> str:
-        """Instrução nativa de hardware: Gera hash SHA-512 combinado para o Ledger de 500 bytes."""
         return hashlib.sha512(data_string.encode('utf-8')).hexdigest()
 
-# Instanciação do microprocessador de 500 bytes do S Message
 cpu_500bytes = Custom500ByteProcessor()
 cpu_500bytes.load_master_buffer(b"s-message-secure-master-buffer-500-bytes-2026")
 
 
 # ==========================================
-# 1. INICIALIZAÇÃO E BLINDAGEM DO FASTAPI
+# 2. INICIALIZAÇÃO E BLINDAGEM DO FASTAPI
 # ==========================================
 app = FastAPI(
-    title="S Message - Autonomous 500-Byte Secure Ledger",
-    version="2.6.0",
-    description="API blindada operando com microprocessador virtual de 500 bytes, biometria e Ledger imutável"
+    title="S Message - Autonomous 500-Byte Secure Ledger with SQLite",
+    version="2.7.0",
+    description="API blindada operando com microprocessador de 500 bytes, biometria e persistência em SQLite"
 )
 
 MILITARY_GRADE_SECRET = b"s-message-secure-master-key-2026"
-
-blockchain_ledger = [{
-    "index": 0,
-    "timestamp": 0.0,
-    "payload": "Genesis Block (Hardware Virtual 500-Byte)",
-    "previous_hash": "0" * 128,
-    "block_hash": "0" * 128
-}]
 
 request_history = defaultdict(list)
 RATE_LIMIT_WINDOW = 60
@@ -90,7 +115,7 @@ MAX_REQUESTS_ALLOWED = 15
 
 
 # ==========================================
-# 2. MIDDLEWARE DE SEGURANÇA E RATE LIMIT
+# 3. MIDDLEWARE DE SEGURANÇA E RATE LIMIT
 # ==========================================
 @app.middleware("http")
 async def military_grade_shield(request: Request, call_next):
@@ -117,7 +142,7 @@ async def military_grade_shield(request: Request, call_next):
 
 
 # ==========================================
-# 3. MÓDULO DE BIOMETRIA E VISÃO COMPUTACIONAL
+# 4. MÓDULO DE BIOMETRIA E VISÃO COMPUTACIONAL
 # ==========================================
 def verify_facial_biometrics(image_bytes: bytes) -> bool:
     try:
@@ -136,19 +161,19 @@ def verify_facial_biometrics(image_bytes: bytes) -> bool:
 
 
 # ==========================================
-# 4. ROTAS DA API COM PROCESSADOR 500-BYTE
+# 5. ROTAS DA API COM PERSISTÊNCIA SQLITE
 # ==========================================
-@app.get("/", summary="Status do Sistema com Processador 500-Byte")
+@app.get("/", summary="Status do Sistema com SQLite")
 async def root():
     return {
         "status": "online",
         "project": "S Message",
         "processor_architecture": "Custom 500-Byte Virtual ALU Active",
         "biometric_shield": "OpenCV Facial Verification Active",
-        "register_capacity": "500 Bytes (4000 bits)"
+        "database": "SQLite Persistent Storage"
     }
 
-@app.post("/api/v1/secure-transfer-biometric", summary="Transferência com Biometria e Processador 500-Byte")
+@app.post("/api/v1/secure-transfer-biometric", summary="Transferência com Biometria e SQLite")
 async def secure_transfer_biometric(
     asset_type: str = Form(..., description="Tipo de ativo"),
     amount: float = Form(..., description="Valor da transação"),
@@ -186,54 +211,84 @@ async def secure_transfer_biometric(
             detail="Falha de blindagem: Assinatura digital inválida."
         )
     
-    # 3. Processamento Criptográfico via Microprocessador Virtual de 500 Bytes
+    # 3. Criptografia via Microprocessador de 500 Bytes
     nonce = os.urandom(12)
     encrypted_data = cpu_500bytes.execute_aes_encrypt(
         json.dumps(payload, sort_keys=True).encode('utf-8'), 
         nonce
     )
     
-    # 4. Registro no Ledger Imutável
-    previous_block = blockchain_ledger[-1]
-    new_index = previous_block["index"] + 1
+    # 4. Leitura do último bloco do SQLite para encadeamento
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('SELECT block_index, block_hash FROM ledger ORDER BY block_index DESC LIMIT 1')
+    last_block = cursor.fetchone()
     
-    new_block_data = {
-        "index": new_index,
-        "timestamp": time.time(),
-        "payload": encrypted_data,
-        "previous_hash": previous_block["block_hash"]
-    }
+    previous_index = last_block[0]
+    previous_hash = last_block[1]
+    new_index = previous_index + 1
+    new_timestamp = time.time()
     
+    # 5. Cálculo do Hash do novo bloco
     block_string = json.dumps({
-        "index": new_block_data["index"],
-        "timestamp": new_block_data["timestamp"],
-        "payload": new_block_data["payload"],
-        "previous_hash": new_block_data["previous_hash"]
+        "index": new_index,
+        "timestamp": new_timestamp,
+        "payload": encrypted_data,
+        "previous_hash": previous_hash
     }, sort_keys=True, separators=(',', ':'))
     
-    new_block_data["block_hash"] = cpu_500bytes.execute_custom_hash(block_string)
-    blockchain_ledger.append(new_block_data)
+    new_block_hash = cpu_500bytes.execute_custom_hash(block_string)
+    
+    # 6. Gravação permanente no SQLite
+    cursor.execute('''
+        INSERT INTO ledger (block_index, timestamp, payload, previous_hash, block_hash)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (new_index, new_timestamp, json.dumps(encrypted_data), previous_hash, new_block_hash))
+    conn.commit()
+    conn.close()
     
     return {
         "status": "200 OK",
-        "message": "Transação processada pelo chip virtual de 500 bytes e registrada no Ledger!",
+        "message": "Transação processada, validada por biometria e gravada permanentemente no SQLite!",
         "block_index": new_index,
         "processor_telemetry": encrypted_data["processor_status"],
-        "register_capacity": encrypted_data["register_capacity"],
         "encrypted_envelope": {
             "ciphertext_hex": encrypted_data["ciphertext_hex"],
             "nonce_hex": encrypted_data["nonce_hex"]
         },
-        "block_hash": new_block_data["block_hash"]
+        "block_hash": new_block_hash
     }
 
-@app.get("/api/v1/audit/chain", summary="Consultar Ledger")
+@app.get("/api/v1/audit/chain", summary="Consultar Ledger no SQLite")
 async def get_audit_chain():
-    return {"chain_length": len(blockchain_ledger), "ledger": blockchain_ledger}
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row  # Retorna os resultados como dicionários organizados
+    cursor = conn.cursor()
+    cursor.execute('SELECT block_index, timestamp, payload, previous_hash, block_hash FROM ledger ORDER BY block_index ASC')
+    rows = cursor.fetchall()
+    
+    ledger_list = []
+    for row in rows:
+        # Se o payload for um JSON armazenado como string, convertemos de volta para dicionário se possível
+        try:
+            parsed_payload = json.loads(row["payload"])
+        except:
+            parsed_payload = row["payload"]
+            
+        ledger_list.append({
+            "index": row["block_index"],
+            "timestamp": row["timestamp"],
+            "payload": parsed_payload,
+            "previous_hash": row["previous_hash"],
+            "block_hash": row["block_hash"]
+        })
+    conn.close()
+    
+    return {"chain_length": len(ledger_list), "ledger": ledger_list}
 
 
 # ==========================================
-# 5. EXECUÇÃO LOCAL
+# 6. EXECUÇÃO LOCAL
 # ==========================================
 if __name__ == "__main__":
     import uvicorn
