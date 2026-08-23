@@ -68,7 +68,7 @@ def init_db():
     # Verifica se já existe o Bloco Gênesis no Ledger
     cursor.execute('SELECT COUNT(*) FROM ledger')
     if cursor.fetchone()[0] == 0:
-        genesis_payload = "Genesis Block (S Message Sovereign Assets: USDT, EURO_DIGITAL, BRX, SDC, SDT)"
+        genesis_payload = "Genesis Block (S Message Sovereign Assets + Auto-Pruning Nonces)"
         genesis_hash = "0" * 128
         cursor.execute('''
             INSERT INTO ledger (block_index, timestamp, payload, previous_hash, block_hash)
@@ -114,7 +114,7 @@ class Custom500ByteProcessor:
         
         ciphertext = aesgcm.encrypt(nonce_bytes, plaintext_bytes, None)
         return {
-            "processor_status": "OK (500-Byte ALU Active + Sovereign Ledger)",
+            "processor_status": "OK (500-Byte ALU Active + Pruned Ledger)",
             "ciphertext_hex": ciphertext.hex(),
             "nonce_hex": nonce_bytes.hex(),
             "register_capacity": "500 Bytes (4000 bits)"
@@ -132,16 +132,15 @@ cpu_500bytes.load_master_buffer(b"s-message-secure-master-buffer-500-bytes-2026"
 # ==========================================
 app = FastAPI(
     title="S Message - Sovereign Multicurrency Wallet & Ledger",
-    version="3.3.0",
-    description="API blindada com suporte a USDT, EURO_DIGITAL, BRX, SDC e SDT, proteção anti-replay e autocustódia ECDSA"
+    version="3.4.0",
+    description="API blindada com suporte a USDT, EURO_DIGITAL, BRX, SDC e SDT, anti-replay com limpeza automática de nonces e autocustódia ECDSA"
 )
 
 request_history = defaultdict(list)
 RATE_LIMIT_WINDOW = 60
 
-# ATIVOS SOBERANOS SOLICITADOS PELO USUÁRIO
 SUPPORTED_ASSETS = ["USDT", "EURO_DIGITAL", "BRX", "SDC", "SDT"]
-TRANSACTION_TTL_SECONDS = 30  # Janela de validade da transação (Anti-Replay)
+TRANSACTION_TTL_SECONDS = 30  # Janela de validade da transação
 
 
 # ==========================================
@@ -200,7 +199,7 @@ async def root():
         "project": "S Message",
         "processor_architecture": "Custom 500-Byte Virtual ALU Active",
         "biometric_shield": "OpenCV Facial Verification Active",
-        "cryptography": "True Self-Custody ECDSA + Anti-Replay Shield",
+        "cryptography": "True Self-Custody ECDSA + Anti-Replay (Auto-Pruned Nonces)",
         "database": "SQLite Persistent Storage",
         "supported_assets": SUPPORTED_ASSETS
     }
@@ -279,7 +278,7 @@ async def wallet_deposit(
         "message": f"Depósito de {amount} {asset_code} realizado com sucesso para {wallet_address}."
     }
 
-@app.post("/api/v1/secure-transfer-biometric", summary="Transferência com Assinatura ECDSA, TTL, Nonce Anti-Replay e Biometria")
+@app.post("/api/v1/secure-transfer-biometric", summary="Transferência com Assinatura ECDSA, TTL, Nonce Anti-Replay com Limpeza Automática e Biometria")
 async def secure_transfer_biometric(
     asset_code: str = Form(..., description="Ex: USDT, EURO_DIGITAL, BRX, SDC, SDT"),
     amount: float = Form(..., description="Valor da transação"),
@@ -312,6 +311,11 @@ async def secure_transfer_biometric(
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     
+    # 0. Rotina de Limpeza Automática (Remove nonces com idade superior ao TTL)
+    expiration_threshold = current_time - TRANSACTION_TTL_SECONDS
+    cursor.execute('DELETE FROM used_nonces WHERE used_at < ?', (expiration_threshold,))
+    
+    # 1. Verificação do Nonce atual
     cursor.execute('SELECT nonce FROM used_nonces WHERE nonce = ?', (nonce,))
     if cursor.fetchone():
         conn.close()
@@ -406,7 +410,7 @@ async def secure_transfer_biometric(
     
     return {
         "status": "200 OK",
-        "message": f"Transferência soberana de {amount} {asset_code} processada com sucesso!",
+        "message": f"Transferência soberana de {amount} {asset_code} processada com limpeza de nonces expirados!",
         "block_index": new_index,
         "processor_telemetry": encrypted_data["processor_status"],
         "encrypted_envelope": {
