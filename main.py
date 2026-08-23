@@ -68,7 +68,7 @@ def init_db():
     # Verifica se já existe o Bloco Gênesis no Ledger
     cursor.execute('SELECT COUNT(*) FROM ledger')
     if cursor.fetchone()[0] == 0:
-        genesis_payload = "Genesis Block (S Message Sovereign Assets + Auto-Pruning Nonces)"
+        genesis_payload = "Genesis Block (S Message Sovereign Assets + Auto-Pruning Nonces + 10000B ALU)"
         genesis_hash = "0" * 128
         cursor.execute('''
             INSERT INTO ledger (block_index, timestamp, payload, previous_hash, block_hash)
@@ -82,26 +82,26 @@ init_db()
 
 
 # ==========================================
-# 1. MICROPROCESSADOR PROPRIETÁRIO 500-BYTE
+# 1. MICROPROCESSADOR PROPRIETÁRIO 10000-BYTE (ALU EXPANDIDA)
 # ==========================================
-class Custom500ByteProcessor:
+class Custom10000ByteProcessor:
     def __init__(self):
         self.registers = {
-            "R0": b"\x00" * 500,
-            "R1": b"\x00" * 500,
-            "R2": b"\x00" * 12,
-            "FLAGS": 0x00
+            "R0": b"\x00" * 10000,
+            "R1": b"\x00" * 10000,
+            "R2": b"\x00" * 16,
+            "FLAGS": 0x01
         }
         self.is_initialized = False
 
     def load_master_buffer(self, input_bytes: bytes):
         padded_buffer = bytearray()
         seed = input_bytes
-        while len(padded_buffer) < 500:
+        while len(padded_buffer) < 10000:
             seed = hashlib.sha512(seed).digest()
             padded_buffer.extend(seed)
         
-        self.registers["R1"] = bytes(padded_buffer[:500])
+        self.registers["R1"] = bytes(padded_buffer[:10000])
         self.is_initialized = True
         self.registers["FLAGS"] = 0x01
 
@@ -114,26 +114,42 @@ class Custom500ByteProcessor:
         
         ciphertext = aesgcm.encrypt(nonce_bytes, plaintext_bytes, None)
         return {
-            "processor_status": "OK (500-Byte ALU Active + Pruned Ledger)",
+            "processor_status": "OK (10000-Byte ALU Active + Ledger Enveloping)",
             "ciphertext_hex": ciphertext.hex(),
             "nonce_hex": nonce_bytes.hex(),
-            "register_capacity": "500 Bytes (4000 bits)"
+            "register_capacity": "10000 Bytes (80000 bits)"
+        }
+
+    def execute_message_encrypt(self, message_text: str) -> dict:
+        if not self.is_initialized:
+            raise RuntimeError("Erro de Hardware Virtual: Processador não inicializado.")
+        
+        chat_key_segment = self.registers["R1"][32:64]  # Segmento dedicado para mensagens
+        aesgcm = AESGCM(chat_key_segment)
+        chat_nonce = os.urandom(12)
+        
+        ciphertext = aesgcm.encrypt(chat_nonce, message_text.encode('utf-8'), None)
+        return {
+            "processor_mode": "S Message Chat Secure Envelope (10000B)",
+            "ciphertext_hex": ciphertext.hex(),
+            "nonce_hex": chat_nonce.hex(),
+            "alu_status": "Processed via 10000-Byte Registers"
         }
 
     def execute_custom_hash(self, data_string: str) -> str:
         return hashlib.sha512(data_string.encode('utf-8')).hexdigest()
 
-cpu_500bytes = Custom500ByteProcessor()
-cpu_500bytes.load_master_buffer(b"s-message-secure-master-buffer-500-bytes-2026")
+cpu_10000bytes = Custom10000ByteProcessor()
+cpu_10000bytes.load_master_buffer(b"s-message-secure-master-buffer-10000-bytes-2026")
 
 
 # ==========================================
 # 2. INICIALIZAÇÃO E BLINDAGEM DO FASTAPI
 # ==========================================
 app = FastAPI(
-    title="S Message - Sovereign Multicurrency Wallet & Ledger",
-    version="3.4.0",
-    description="API blindada com suporte a USDT, EURO_DIGITAL, BRX, SDC e SDT, anti-replay com limpeza automática de nonces e autocustódia ECDSA"
+    title="S Message - Sovereign Multicurrency Wallet & Secure Chat",
+    version="6.0.0",
+    description="API blindada com suporte a USDT, EURO_DIGITAL, BRX, SDC, SDT, ALU proprietária de 10000 Bytes e anti-replay"
 )
 
 request_history = defaultdict(list)
@@ -197,9 +213,9 @@ async def root():
     return {
         "status": "online",
         "project": "S Message",
-        "processor_architecture": "Custom 500-Byte Virtual ALU Active",
+        "processor_architecture": "Custom 10000-Byte Virtual ALU Active (Chat & Ledger)",
         "biometric_shield": "OpenCV Facial Verification Active",
-        "cryptography": "True Self-Custody ECDSA + Anti-Replay (Auto-Pruned Nonces)",
+        "cryptography": "True Self-Custody ECDSA + Anti-Replay + 10000B Chat Encryption",
         "database": "SQLite Persistent Storage",
         "supported_assets": SUPPORTED_ASSETS
     }
@@ -278,7 +294,21 @@ async def wallet_deposit(
         "message": f"Depósito de {amount} {asset_code} realizado com sucesso para {wallet_address}."
     }
 
-@app.post("/api/v1/secure-transfer-biometric", summary="Transferência com Assinatura ECDSA, TTL, Nonce Anti-Replay com Limpeza Automática e Biometria")
+@app.post("/api/v1/message/encrypt", summary="Criptografar Mensagem de Chat usando a ALU de 10000 Bytes")
+async def encrypt_chat_message(
+    message: str = Form(..., description="Texto da mensagem de chat a ser cifrada")
+):
+    try:
+        encrypted_envelope = cpu_10000bytes.execute_message_encrypt(message)
+        return {
+            "status": "200 OK",
+            "message": "Mensagem cifrada com sucesso pelo microprocessador virtual de 10000 bytes.",
+            "envelope": encrypted_envelope
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro no processamento de hardware virtual: {str(e)}")
+
+@app.post("/api/v1/secure-transfer-biometric", summary="Transferência com Assinatura ECDSA, TTL, Nonce Anti-Replay com Limpeza e Biometria")
 async def secure_transfer_biometric(
     asset_code: str = Form(..., description="Ex: USDT, EURO_DIGITAL, BRX, SDC, SDT"),
     amount: float = Form(..., description="Valor da transação"),
@@ -311,11 +341,10 @@ async def secure_transfer_biometric(
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     
-    # 0. Rotina de Limpeza Automática (Remove nonces com idade superior ao TTL)
+    # Limpeza automática de nonces expirados (> 30s)
     expiration_threshold = current_time - TRANSACTION_TTL_SECONDS
     cursor.execute('DELETE FROM used_nonces WHERE used_at < ?', (expiration_threshold,))
     
-    # 1. Verificação do Nonce atual
     cursor.execute('SELECT nonce FROM used_nonces WHERE nonce = ?', (nonce,))
     if cursor.fetchone():
         conn.close()
@@ -378,7 +407,7 @@ async def secure_transfer_biometric(
     cursor.execute('INSERT INTO used_nonces (nonce, used_at) VALUES (?, ?)', (nonce, current_time))
 
     aes_nonce = os.urandom(12)
-    encrypted_data = cpu_500bytes.execute_aes_encrypt(
+    encrypted_data = cpu_10000bytes.execute_aes_encrypt(
         json.dumps(payload, sort_keys=True).encode('utf-8'), 
         aes_nonce
     )
@@ -398,7 +427,7 @@ async def secure_transfer_biometric(
         "previous_hash": previous_hash
     }, sort_keys=True, separators=(',', ':'))
     
-    new_block_hash = cpu_500bytes.execute_custom_hash(block_string)
+    new_block_hash = cpu_10000bytes.execute_custom_hash(block_string)
     
     cursor.execute('''
         INSERT INTO ledger (block_index, timestamp, payload, previous_hash, block_hash)
@@ -410,7 +439,7 @@ async def secure_transfer_biometric(
     
     return {
         "status": "200 OK",
-        "message": f"Transferência soberana de {amount} {asset_code} processada com limpeza de nonces expirados!",
+        "message": f"Transferência soberana de {amount} {asset_code} processada com ALU de 10000 Bytes!",
         "block_index": new_index,
         "processor_telemetry": encrypted_data["processor_status"],
         "encrypted_envelope": {
