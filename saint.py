@@ -293,3 +293,58 @@ async def get_audit_chain():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="127.0.0.1", port=8765, reload=True)
+from cryptography import x509
+from cryptography.x509.name import NameAttribute
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import serialization
+from cryptography.x509.oid import NameOID
+import datetime
+
+def gerar_certificado_operacional():
+    # 1. Gerar chave privada RSA (2048 bits)
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+
+    # 2. Definir os dados do emissor e sujeito (Assunto do Certificado)
+    subject = issuer = x509.Name([
+        NameAttribute(NameOID.COUNTRY_NAME, "BR"),
+        NameAttribute(NameOID.ORGANIZATION_NAME, "S Message Security"),
+        NameAttribute(NameOID.COMMON_NAME, "S Message Secure Operations CA"),
+    ])
+
+    # 3. Construir o certificado digital válido por 1 ano
+    certificado = x509.CertificateBuilder().subject_name(
+        subject
+    ).issuer_name(
+        issuer
+    ).public_key(
+        private_key.public_key()
+    ).serial_number(
+        x509.random_serial_number()
+    ).not_valid_before(
+        datetime.datetime.now(datetime.timezone.utc)
+    ).not_valid_after(
+        datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=365)
+    ).add_extension(
+        x509.BasicConstraints(ca=True, path_length=None),
+        critical=True,
+    ).sign(private_key, hashes.SHA256())
+
+    # 4. Salvar chave privada e certificado em arquivos PEM
+    with open("private_key.pem", "wb") as f:
+        f.write(private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption()
+        ))
+
+    with open("certificate.pem", "wb") as f:
+        f.write(certificado.public_bytes(serialization.Encoding.PEM))
+
+    print("[INFO] Certificado digital e chave privada gerados com sucesso!")
+
+if __name__ == "__main__":
+    gerar_certificado_operacional()
