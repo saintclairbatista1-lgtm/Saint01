@@ -348,6 +348,9 @@ def gerar_certificado_operacional():
 
 if __name__ == "__main__":
     gerar_certificado_operacional()
-git add Sant.py
-git commit -m "Adiciona simulação 6G AI-Driven RAN no plano de controle"
-git push origin main
+import os
+import uvicorn
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
