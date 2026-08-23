@@ -1,45 +1,14 @@
-import requests
-
-def executar_cliente_transferencia():
-    url = "http://127.0.0.1:10000/api/v1/secure-transfer-biometric"
-    
-    # Dados da transação comercial
-    payload = {
-        "asset_code": "BRL_DIGITAL",
-        "amount": "50.0",
-        "wallet_from": "carteira_santi_123",
-        "wallet_to": "carteira_destino_456",
-        "digital_signature": "SUA_ASSINATURA_HMAC_AQUI"
-    }
-    
-    # Caminho da foto para biometria (ajustado para o Android/Pydroid se necessário)
-    foto_path = "/storage/emulated/0/Pictures/Screenshots/foto1.png"
-    
-    try:
-        with open(foto_path, "rb") as f:
-            files = {"face_image": ("foto1.png", f, "image/png")}
-            
-            print("[+] Enviando requisição para a API S Message...")
-            response = requests.post(url, data=payload, files=files)
-            
-        print(f"Status Code: {response.status_code}")
-        print(f"Resposta: {response.json()}")
-        
-    except FileNotFoundError:
-        print(f"[-] Erro: Arquivo de imagem não encontrado em {foto_path}")
-    except Exception as e:
-        print(f"[-] Erro na requisição: {e}")
-
-if __name__ == "__main__":
-    executar_cliente_transferencia()
 import hmac
 import hashlib
 import time
+import json
+import sqlite3
 import requests
 
 # Configurações da transação
 URL_API = "http://127.0.0.1:10000/api/v1/secure-transfer-biometric"
 SECRET_KEY = b"sua_chave_secreta_compartilhada"  # Deve bater com a chave do servidor
+DB_FILE = "s_message_ledger.db"
 
 WALLET_FROM = "carteira_santi_123"
 WALLET_TO = "carteira_destino_456"
@@ -47,11 +16,35 @@ ASSET_CODE = "BRL_DIGITAL"
 AMOUNT = "50.0"
 FOTO_PATH = "/storage/emulated/0/Pictures/Screenshots/foto1.png"
 
+def inicializar_fila_offline():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS offline_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            endpoint TEXT,
+            payload TEXT,
+            timestamp REAL
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+def salvar_offline(payload: dict):
+    inicializar_fila_offline()
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO offline_queue (endpoint, payload, timestamp) VALUES (?, ?, ?)",
+        (URL_API, json.dumps(payload), time.time())
+    )
+    conn.commit()
+    conn.close()
+    print("[*] Sem conexão com o servidor. Transação salva na fila offline com sucesso.")
+
 def gerar_assinatura_hmac(wallet_from: str, wallet_to: str, amount: str) -> str:
-    # Mensagem padronizada para assinar a transação
     mensagem = f"{wallet_from}:{wallet_to}:{amount}"
-    assinatura = hmac.new(SECRET_KEY, mensagem.encode("utf-8"), hashlib.sha256).hexdigest()
-    return assinatura
+    return hmac.new(SECRET_KEY, mensagem.encode("utf-8"), hashlib.sha256).hexdigest()
 
 def executar_cliente():
     print("[*] Gerando assinatura HMAC...")
@@ -71,15 +64,18 @@ def executar_cliente():
             files = {"face_image": ("foto1.png", f, "image/png")}
             
             print("[+] Disparando requisição para o S Message...")
-            response = requests.post(URL_API, data=payload, files=files)
+            # Definimos um timeout curto para detectar queda rápido
+            response = requests.post(URL_API, data=payload, files=files, timeout=5)
             
         print(f"\n[HTTP Status] {response.status_code}")
         print(f"[Resposta] {response.json()}")
         
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+        # Cai aqui se o servidor estiver offline
+        salvar_offline(payload)
+        
     except FileNotFoundError:
         print(f"[-] Erro: Arquivo de imagem não encontrado no caminho {FOTO_PATH}.")
-    except requests.exceptions.ConnectionError:
-        print("[-] Erro: Não foi possível conectar ao servidor. Verifique se o backend está rodando na porta 10000.")
     except Exception as e:
         print(f"[-] Erro inesperado: {e}")
 
