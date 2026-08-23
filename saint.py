@@ -46,4 +46,7 @@ async def secure_transfer(transaction: Transaction):
          raise HTTPException(status_code=400, detail="Falha de integridade: A assinatura digital da transação não confere ou foi adulterada.")
     
     return {"status": "200 OK", "message": "Transferência realizada com sucesso!"}
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="127.0.0.1", port=8765, reload=True)
 
