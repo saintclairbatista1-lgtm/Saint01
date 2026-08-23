@@ -55,12 +55,20 @@ def init_db():
         )
     ''')
     
+    # Tabela de Nonces Utilizados (Proteção contra Replay Attacks)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS used_nonces (
+            nonce TEXT PRIMARY KEY,
+            used_at REAL
+        )
+    ''')
+    
     conn.commit()
     
     # Verifica se já existe o Bloco Gênesis no Ledger
     cursor.execute('SELECT COUNT(*) FROM ledger')
     if cursor.fetchone()[0] == 0:
-        genesis_payload = "Genesis Block (S Message True Self-Custody Wallet + SQLite)"
+        genesis_payload = "Genesis Block (S Message Sovereign Assets: USDT, EURO_DIGITAL, BRX, SDC, SDT)"
         genesis_hash = "0" * 128
         cursor.execute('''
             INSERT INTO ledger (block_index, timestamp, payload, previous_hash, block_hash)
@@ -106,7 +114,7 @@ class Custom500ByteProcessor:
         
         ciphertext = aesgcm.encrypt(nonce_bytes, plaintext_bytes, None)
         return {
-            "processor_status": "OK (500-Byte ALU Active + True Self-Custody Ledger)",
+            "processor_status": "OK (500-Byte ALU Active + Sovereign Ledger)",
             "ciphertext_hex": ciphertext.hex(),
             "nonce_hex": nonce_bytes.hex(),
             "register_capacity": "500 Bytes (4000 bits)"
@@ -123,14 +131,17 @@ cpu_500bytes.load_master_buffer(b"s-message-secure-master-buffer-500-bytes-2026"
 # 2. INICIALIZAÇÃO E BLINDAGEM DO FASTAPI
 # ==========================================
 app = FastAPI(
-    title="S Message - True Self-Custody Wallet & Ledger",
-    version="3.1.0",
-    description="API blindada com autocustódia estrita (servidor não conhece chaves privadas), microprocessador de 500 bytes e carteira multimoeda (SDC, SDT, USD, EUR, BRX)"
+    title="S Message - Sovereign Multicurrency Wallet & Ledger",
+    version="3.3.0",
+    description="API blindada com suporte a USDT, EURO_DIGITAL, BRX, SDC e SDT, proteção anti-replay e autocustódia ECDSA"
 )
 
 request_history = defaultdict(list)
 RATE_LIMIT_WINDOW = 60
-SUPPORTED_ASSETS = ["SDC", "SDT", "USD_DIGITAL", "EUR_DIGITAL", "BRX"]
+
+# ATIVOS SOBERANOS SOLICITADOS PELO USUÁRIO
+SUPPORTED_ASSETS = ["USDT", "EURO_DIGITAL", "BRX", "SDC", "SDT"]
+TRANSACTION_TTL_SECONDS = 30  # Janela de validade da transação (Anti-Replay)
 
 
 # ==========================================
@@ -180,7 +191,7 @@ def verify_facial_biometrics(image_bytes: bytes) -> bool:
 
 
 # ==========================================
-# 5. ROTAS DA API (AUTOCUSTÓDIA ESTREITA E LEDGER)
+# 5. ROTAS DA API
 # ==========================================
 @app.get("/", summary="Status do Sistema S Message")
 async def root():
@@ -189,7 +200,7 @@ async def root():
         "project": "S Message",
         "processor_architecture": "Custom 500-Byte Virtual ALU Active",
         "biometric_shield": "OpenCV Facial Verification Active",
-        "cryptography": "True Self-Custody (Server holds ONLY Public Keys)",
+        "cryptography": "True Self-Custody ECDSA + Anti-Replay Shield",
         "database": "SQLite Persistent Storage",
         "supported_assets": SUPPORTED_ASSETS
     }
@@ -198,23 +209,13 @@ async def root():
 async def register_wallet(
     public_key_pem: str = Form(..., description="Chave pública PEM gerada localmente pelo usuário")
 ):
-    """
-    O usuário gera seu par de chaves no seu próprio dispositivo (client-side).
-    Ele envia APENAS a chave pública. O servidor valida a estrutura, deriva o endereço
-    e armazena a chave pública para futura checagem de assinaturas. A chave privada NUNCA vem ao servidor.
-    """
     try:
-        # Valida se a chave pública é válida pelo formato PEM
         pub_key = serialization.load_pem_public_key(public_key_pem.encode('utf-8'))
-        
-        # Garante que é uma chave ECDSA
         if not isinstance(pub_key, ec.EllipticCurvePublicKey):
             raise HTTPException(status_code=400, detail="Apenas chaves baseadas em Curvas Elípticas (ECDSA) são suportadas.")
-            
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Chave pública PEM inválida: {str(e)}")
     
-    # Derivação determinística do endereço da carteira a partir da chave pública
     wallet_address = hashlib.sha256(public_key_pem.strip().encode('utf-8')).hexdigest()[:40]
     
     conn = sqlite3.connect(DB_FILE)
@@ -232,7 +233,7 @@ async def register_wallet(
         "wallet_address": wallet_address
     }
 
-@app.get("/api/v1/wallet/{wallet_address}", summary="Consultar Saldos Multimoeda")
+@app.get("/api/v1/wallet/{wallet_address}", summary="Consultar Saldos Multimoeda (USDT, EURO_DIGITAL, BRX, SDC, SDT)")
 async def get_wallet_balances(wallet_address: str):
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
@@ -249,14 +250,14 @@ async def get_wallet_balances(wallet_address: str):
         "balances": balances
     }
 
-@app.post("/api/v1/wallet/deposit", summary="Depositar Fundos na Carteira (Simulador Interno)")
+@app.post("/api/v1/wallet/deposit", summary="Depositar Fundos na Carteira")
 async def wallet_deposit(
     wallet_address: str = Form(...),
-    asset_code: str = Form(..., description="Ex: SDC, SDT, USD_DIGITAL, EUR_DIGITAL, BRX"),
+    asset_code: str = Form(..., description="Ex: USDT, EURO_DIGITAL, BRX, SDC, SDT"),
     amount: float = Form(...)
 ):
     if asset_code not in SUPPORTED_ASSETS:
-        raise HTTPException(status_code=400, detail="Ativo não suportado pelo sistema.")
+        raise HTTPException(status_code=400, detail=f"Ativo não suportado. Ativos válidos: {SUPPORTED_ASSETS}")
     if amount <= 0:
         raise HTTPException(status_code=400, detail="O valor do depósito deve ser maior que zero.")
 
@@ -278,22 +279,29 @@ async def wallet_deposit(
         "message": f"Depósito de {amount} {asset_code} realizado com sucesso para {wallet_address}."
     }
 
-@app.post("/api/v1/secure-transfer-biometric", summary="Transferência Segura com Assinatura ECDSA Local, Biometria e Ledger")
+@app.post("/api/v1/secure-transfer-biometric", summary="Transferência com Assinatura ECDSA, TTL, Nonce Anti-Replay e Biometria")
 async def secure_transfer_biometric(
-    asset_code: str = Form(..., description="Ex: SDC, SDT, USD_DIGITAL, EUR_DIGITAL, BRX"),
+    asset_code: str = Form(..., description="Ex: USDT, EURO_DIGITAL, BRX, SDC, SDT"),
     amount: float = Form(..., description="Valor da transação"),
     wallet_from: str = Form(..., description="Endereço da carteira de origem"),
     wallet_to: str = Form(..., description="Carteira de destino"),
-    ecdsa_signature_hex: str = Form(..., description="Assinatura digital ECDSA gerada localmente no dispositivo do remetente"),
+    nonce: str = Form(..., description="Identificador único da transação gerado pelo cliente"),
+    timestamp: float = Form(..., description="Timestamp Unix exato da assinatura"),
+    ecdsa_signature_hex: str = Form(..., description="Assinatura digital ECDSA cobrindo o payload completo"),
     face_image: UploadFile = File(..., description="Foto do rosto para validação biométrica")
 ):
-    # 0. Validações iniciais
     if asset_code not in SUPPORTED_ASSETS:
-        raise HTTPException(status_code=400, detail="Ativo não suportado pelo sistema.")
+        raise HTTPException(status_code=400, detail=f"Ativo não suportado. Ativos válidos: {SUPPORTED_ASSETS}")
     if amount <= 0:
         raise HTTPException(status_code=400, detail="O valor da transferência deve ser maior que zero.")
 
-    # 1. Validação Biométrica Facial
+    current_time = time.time()
+    if abs(current_time - timestamp) > TRANSACTION_TTL_SECONDS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Falha Anti-Replay: Transação expirada ({TRANSACTION_TTL_SECONDS}s)."
+        )
+
     image_bytes = await face_image.read()
     if not verify_facial_biometrics(image_bytes):
         raise HTTPException(
@@ -301,9 +309,17 @@ async def secure_transfer_biometric(
             detail="Falha biométrica: Rosto não validado."
         )
         
-    # 2. Busca da Chave Pública associada à carteira de origem
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+    
+    cursor.execute('SELECT nonce FROM used_nonces WHERE nonce = ?', (nonce,))
+    if cursor.fetchone():
+        conn.close()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Falha Anti-Replay: Este nonce já foi utilizado."
+        )
+
     cursor.execute('SELECT public_key_pem FROM wallet_keys WHERE wallet_address = ?', (wallet_from,))
     row_key = cursor.fetchone()
     
@@ -313,12 +329,13 @@ async def secure_transfer_biometric(
     
     public_key_pem = row_key[0]
     
-    # 3. Validação Criptográfica da Assinatura ECDSA
     payload = {
         "asset_code": asset_code,
         "amount": amount,
         "wallet_from": wallet_from,
-        "wallet_to": wallet_to
+        "wallet_to": wallet_to,
+        "nonce": nonce,
+        "timestamp": timestamp
     }
     payload_json = json.dumps(payload, sort_keys=True, separators=(',', ':'))
     
@@ -335,10 +352,9 @@ async def secure_transfer_biometric(
         conn.close()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, 
-            detail=f"Falha de blindagem: Assinatura ECDSA inválida. Apenas o verdadeiro dono da chave privada pode assinar esta transação."
+            detail=f"Falha de blindagem: Assinatura ECDSA inválida. Detalhe: {str(e)}"
         )
     
-    # 4. Operação de Saldos no SQLite (Transacional)
     cursor.execute('SELECT balance FROM wallet_balances WHERE wallet_address = ? AND asset_code = ?', (wallet_from, asset_code))
     row_balance = cursor.fetchone()
     current_balance = row_balance[0] if row_balance else 0.0
@@ -347,24 +363,22 @@ async def secure_transfer_biometric(
         conn.close()
         raise HTTPException(status_code=400, detail="Saldo insuficiente para realizar a transferência.")
         
-    # Debita da origem
     cursor.execute('UPDATE wallet_balances SET balance = balance - ?, last_updated = ? WHERE wallet_address = ? AND asset_code = ?', 
                    (amount, time.time(), wallet_from, asset_code))
                    
-    # Credita no destino
     cursor.execute('INSERT OR IGNORE INTO wallet_balances (wallet_address, asset_code, balance, last_updated) VALUES (?, ?, 0.0, ?)',
                    (wallet_to, asset_code, time.time()))
     cursor.execute('UPDATE wallet_balances SET balance = balance + ?, last_updated = ? WHERE wallet_address = ? AND asset_code = ?', 
                    (amount, time.time(), wallet_to, asset_code))
 
-    # 5. Criptografia via Microprocessador de 500 Bytes
-    nonce = os.urandom(12)
+    cursor.execute('INSERT INTO used_nonces (nonce, used_at) VALUES (?, ?)', (nonce, current_time))
+
+    aes_nonce = os.urandom(12)
     encrypted_data = cpu_500bytes.execute_aes_encrypt(
         json.dumps(payload, sort_keys=True).encode('utf-8'), 
-        nonce
+        aes_nonce
     )
     
-    # 6. Leitura do último bloco do Ledger para encadeamento
     cursor.execute('SELECT block_index, block_hash FROM ledger ORDER BY block_index DESC LIMIT 1')
     last_block = cursor.fetchone()
     
@@ -373,7 +387,6 @@ async def secure_transfer_biometric(
     new_index = previous_index + 1
     new_timestamp = time.time()
     
-    # 7. Cálculo do Hash do novo bloco
     block_string = json.dumps({
         "index": new_index,
         "timestamp": new_timestamp,
@@ -383,7 +396,6 @@ async def secure_transfer_biometric(
     
     new_block_hash = cpu_500bytes.execute_custom_hash(block_string)
     
-    # 8. Gravação permanente no Ledger SQLite
     cursor.execute('''
         INSERT INTO ledger (block_index, timestamp, payload, previous_hash, block_hash)
         VALUES (?, ?, ?, ?, ?)
@@ -394,7 +406,7 @@ async def secure_transfer_biometric(
     
     return {
         "status": "200 OK",
-        "message": f"Transferência de {amount} {asset_code} autenticada por chave privada local, validada por biometria e gravada no Ledger!",
+        "message": f"Transferência soberana de {amount} {asset_code} processada com sucesso!",
         "block_index": new_index,
         "processor_telemetry": encrypted_data["processor_status"],
         "encrypted_envelope": {
