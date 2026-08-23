@@ -66,12 +66,36 @@ def init_db():
             used_at REAL
         )
     ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS support_tickets (
+            ticket_id TEXT PRIMARY KEY,
+            wallet_address TEXT,
+            subject_encrypted TEXT,
+            status TEXT,
+            priority TEXT,
+            created_at REAL,
+            updated_at REAL
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS ticket_messages (
+            message_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticket_id TEXT,
+            sender_address TEXT,
+            encrypted_content TEXT,
+            nonce_hex TEXT,
+            timestamp REAL,
+            FOREIGN KEY (ticket_id) REFERENCES support_tickets(ticket_id)
+        )
+    ''')
     
     conn.commit()
     
     cursor.execute('SELECT COUNT(*) FROM ledger')
     if cursor.fetchone()[0] == 0:
-        genesis_payload = "Genesis Block (S Message Full Unified Military-Grade Edition 2026)"
+        genesis_payload = "Genesis Block (S Message Full Unified Military-Grade Edition + Help Desk 2026)"
         genesis_hash = "0" * 128
         cursor.execute('''
             INSERT INTO ledger (block_index, timestamp, payload, previous_hash, block_hash)
@@ -140,7 +164,7 @@ class MilitaryGrade10000ByteProcessor:
         chat_nonce = os.urandom(12)
         ciphertext = aesgcm.encrypt(chat_nonce, message_text.encode('utf-8'), None)
         return {
-            "processor_mode": "S Message Secure Chat Envelope (10000B ALU)",
+            "processor_mode": "S Message Secure Envelope (10000B ALU)",
             "ciphertext_hex": ciphertext.hex(),
             "nonce_hex": chat_nonce.hex(),
             "alu_status": "Processed via 10000-Byte Registers"
@@ -150,7 +174,6 @@ class MilitaryGrade10000ByteProcessor:
         return hashlib.sha512(data_string.encode('utf-8')).hexdigest()
 
     def zeroize(self):
-        """Destruição de dados sensíveis na memória RAM (Zeroization)"""
         for reg in self.registers:
             if isinstance(self.registers[reg], bytearray):
                 for i in range(len(self.registers[reg])):
@@ -176,16 +199,16 @@ def generate_checksum_address(public_key_pem: str) -> str:
 # 3. FASTAPI E BLINDAGEM DE REDE (FAIL2BAN + RATE LIMIT)
 # ==========================================
 app = FastAPI(
-    title="S Message - Sovereign Multicurrency & Secure Chat (Full Military Edition)",
-    version="8.0.0",
-    description="API Completa com ALU 10KB, HKDF, WAL Mode, Checksum snt1, Prova de Posse, Anti-Spoofing e Fail2Ban"
+    title="S Message - Sovereign Multicurrency & Secure Help Desk (Full Military Edition)",
+    version="10.0.0",
+    description="API Definitiva com ALU 10KB, HKDF, WAL Mode, Checksum snt1, Prova de Posse, Anti-Spoofing, Fail2Ban e Help Desk Blindado"
 )
 
 request_history = defaultdict(list)
 banned_ips = {}
 RATE_LIMIT_WINDOW = 60
-MAX_REQUESTS_PER_WINDOW = 20
-BAN_DURATION = 900  # 15 minutos de isolamento de IP
+MAX_REQUESTS_PER_WINDOW = 30
+BAN_DURATION = 900
 
 SUPPORTED_ASSETS = ["USDT", "EURO_DIGITAL", "BRX", "SDC", "SDT"]
 TRANSACTION_TTL_SECONDS = 30
@@ -218,7 +241,6 @@ async def military_grade_shield(request: Request, call_next):
     request_history[client_ip].append(current_time)
     response = await call_next(request)
     
-    # Cabeçalhos de Segurança Militar
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
@@ -239,7 +261,6 @@ def verify_facial_biometrics(image_bytes: bytes) -> bool:
             return False
             
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        # Rejeição de fotos impressas planas ou telas apagadas/estouradas
         if gray.std() < 14.0 or gray.mean() < 20 or gray.mean() > 235:
             return False
 
@@ -259,20 +280,19 @@ async def root():
     return {
         "status": "online / armed",
         "project": "S Message",
-        "version": "8.0.0 Full Military",
+        "version": "10.0.0 Full Unified Military Edition",
         "processor_architecture": "Custom 10000-Byte Virtual ALU + HKDF Active",
         "database_engine": "SQLite (WAL Mode + Full Synchronous + 15s Timeout)",
         "address_standard": "snt1 with Mathematical Checksum Active",
-        "biometric_shield": "OpenCV Facial Verification + Advanced Anti-Spoofing",
-        "security_layers": ["Proof of Possession (PoP)", "Anti-Replay TTL (30s)", "Fail2Ban IP Guard", "Memory Zeroization"],
+        "security_layers": ["Proof of Possession (PoP)", "Anti-Replay TTL (30s)", "Fail2Ban IP Guard", "Secure Help Desk", "Anti-Spoofing Biometrics"],
         "supported_assets": SUPPORTED_ASSETS
     }
 
 @app.post("/api/v1/wallet/register", summary="Registrar Chave Pública com Prova de Posse e Checksum")
 async def register_wallet(
-    public_key_pem: str = Form(..., description="Chave pública PEM gerada localmente pelo usuário"),
-    challenge_nonce: str = Form(..., description="Desafio randômico gerado pelo cliente"),
-    ecdsa_signature_hex: str = Form(..., description="Assinatura digital gerada com a chave privada sobre o challenge_nonce")
+    public_key_pem: str = Form(...),
+    challenge_nonce: str = Form(...),
+    ecdsa_signature_hex: str = Form(...)
 ):
     try:
         pub_key = serialization.load_pem_public_key(public_key_pem.encode('utf-8'))
@@ -288,7 +308,7 @@ async def register_wallet(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, 
-            detail=f"Falha na Prova de Posse: A assinatura do desafio é inválida ou a chave PEM está corrompida. Detalhe: {str(e)}"
+            detail=f"Falha na Prova de Posse: {str(e)}"
         )
     
     wallet_address = generate_checksum_address(public_key_pem)
@@ -304,7 +324,7 @@ async def register_wallet(
     
     return {
         "status": "200 OK",
-        "message": "Chave pública validada via Prova de Posse e registrada com endereço com Checksum!",
+        "message": "Chave pública validada via Prova de Posse e registrada com sucesso!",
         "wallet_address": wallet_address
     }
 
@@ -313,139 +333,97 @@ async def get_wallet_balances(wallet_address: str):
     conn = get_db_connection()
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    
     cursor.execute('SELECT asset_code, balance FROM wallet_balances WHERE wallet_address = ?', (wallet_address,))
     rows = cursor.fetchall()
     conn.close()
-    
     balances = {row["asset_code"]: row["balance"] for row in rows}
-    
-    return {
-        "wallet_address": wallet_address,
-        "balances": balances
-    }
+    return {"wallet_address": wallet_address, "balances": balances}
 
 @app.post("/api/v1/wallet/deposit", summary="Depositar Fundos na Carteira")
 async def wallet_deposit(
     wallet_address: str = Form(...),
-    asset_code: str = Form(..., description="Ex: USDT, EURO_DIGITAL, BRX, SDC, SDT"),
+    asset_code: str = Form(...),
     amount: float = Form(...)
 ):
-    if asset_code not in SUPPORTED_ASSETS:
-        raise HTTPException(status_code=400, detail=f"Ativo não suportado. Ativos válidos: {SUPPORTED_ASSETS}")
-    if amount <= 0:
-        raise HTTPException(status_code=400, detail="O valor do depósito deve ser maior que zero.")
+    if asset_code not in SUPPORTED_ASSETS or amount <= 0:
+        raise HTTPException(status_code=400, detail="Ativo não suportado ou valor inválido.")
 
     conn = get_db_connection()
     cursor = conn.cursor()
-    
     cursor.execute('''
         INSERT INTO wallet_balances (wallet_address, asset_code, balance, last_updated)
         VALUES (?, ?, ?, ?)
         ON CONFLICT(wallet_address, asset_code) 
         DO UPDATE SET balance = balance + ?, last_updated = ?
     ''', (wallet_address, asset_code, amount, time.time(), amount, time.time()))
-    
     conn.commit()
     conn.close()
-    
-    return {
-        "status": "200 OK",
-        "message": f"Depósito de {amount} {asset_code} realizado com sucesso para {wallet_address}."
-    }
+    return {"status": "200 OK", "message": f"Depósito de {amount} {asset_code} realizado para {wallet_address}."}
 
 @app.post("/api/v1/message/encrypt", summary="Criptografar Mensagem de Chat usando a ALU de 10.000 Bytes")
 async def encrypt_chat_message(
-    message: str = Form(..., description="Texto da mensagem de chat a ser cifrada")
+    message: str = Form(...)
 ):
     try:
         encrypted_envelope = cpu_10000bytes.execute_message_encrypt(message)
         return {
             "status": "200 OK",
-            "message": "Mensagem cifrada com sucesso pelo microprocessador virtual de 10000 bytes (HKDF + AES-GCM).",
+            "message": "Mensagem cifrada com sucesso pela ALU de 10000 bytes.",
             "envelope": encrypted_envelope
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro no processamento de hardware virtual: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/v1/secure-transfer-biometric", summary="Transferência com Assinatura, WAL Concurrency, TTL, Anti-Replay e Anti-Spoofing")
+@app.post("/api/v1/secure-transfer-biometric", summary="Transferência com Assinatura, WAL, TTL e Anti-Spoofing")
 async def secure_transfer_biometric(
-    asset_code: str = Form(..., description="Ex: USDT, EURO_DIGITAL, BRX, SDC, SDT"),
-    amount: float = Form(..., description="Valor da transação"),
-    wallet_from: str = Form(..., description="Endereço da carteira de origem"),
-    wallet_to: str = Form(..., description="Carteira de destino"),
-    nonce: str = Form(..., description="Identificador único da transação gerado pelo cliente"),
-    timestamp: float = Form(..., description="Timestamp Unix exato da assinatura"),
-    ecdsa_signature_hex: str = Form(..., description="Assinatura digital ECDSA cobrindo o payload completo"),
-    face_image: UploadFile = File(..., description="Foto do rosto para validação biométrica com anti-spoofing")
+    asset_code: str = Form(...),
+    amount: float = Form(...),
+    wallet_from: str = Form(...),
+    wallet_to: str = Form(...),
+    nonce: str = Form(...),
+    timestamp: float = Form(...),
+    ecdsa_signature_hex: str = Form(...),
+    face_image: UploadFile = File(...)
 ):
-    if asset_code not in SUPPORTED_ASSETS:
-        raise HTTPException(status_code=400, detail=f"Ativo não suportado. Ativos válidos: {SUPPORTED_ASSETS}")
-    if amount <= 0:
-        raise HTTPException(status_code=400, detail="O valor da transferência deve ser maior que zero.")
+    if asset_code not in SUPPORTED_ASSETS or amount <= 0:
+        raise HTTPException(status_code=400, detail="Ativo inválido ou valor menor/igual a zero.")
 
     current_time = time.time()
     if abs(current_time - timestamp) > TRANSACTION_TTL_SECONDS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Falha Anti-Replay: Transação expirada ({TRANSACTION_TTL_SECONDS}s)."
-        )
+        raise HTTPException(status_code=400, detail="Falha Anti-Replay: Transação expirada.")
 
     image_bytes = await face_image.read()
     if not verify_facial_biometrics(image_bytes):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Falha biométrica ou Anti-Spoofing: Rosto não validado ou detecção de imagem estática/falsa."
-        )
+        raise HTTPException(status_code=401, detail="Falha biométrica ou Anti-Spoofing: Rosto inválido ou estático.")
         
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    expiration_threshold = current_time - TRANSACTION_TTL_SECONDS
-    cursor.execute('DELETE FROM used_nonces WHERE used_at < ?', (expiration_threshold,))
-    
+    cursor.execute('DELETE FROM used_nonces WHERE used_at < ?', (current_time - TRANSACTION_TTL_SECONDS,))
     cursor.execute('SELECT nonce FROM used_nonces WHERE nonce = ?', (nonce,))
     if cursor.fetchone():
         conn.close()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Falha Anti-Replay: Este nonce já foi utilizado."
-        )
+        raise HTTPException(status_code=400, detail="Falha Anti-Replay: Nonce já utilizado.")
 
     cursor.execute('SELECT public_key_pem FROM wallet_keys WHERE wallet_address = ?', (wallet_from,))
     row_key = cursor.fetchone()
-    
     if not row_key:
         conn.close()
-        raise HTTPException(status_code=400, detail="Carteira de origem não registrada ou sem chave pública cadastrada.")
-    
-    public_key_pem = row_key[0]
+        raise HTTPException(status_code=400, detail="Carteira de origem não registrada.")
     
     payload = {
-        "asset_code": asset_code,
-        "amount": amount,
-        "wallet_from": wallet_from,
-        "wallet_to": wallet_to,
-        "nonce": nonce,
-        "timestamp": timestamp
+        "asset_code": asset_code, "amount": amount,
+        "wallet_from": wallet_from, "wallet_to": wallet_to,
+        "nonce": nonce, "timestamp": timestamp
     }
     payload_json = json.dumps(payload, sort_keys=True, separators=(',', ':'))
     
     try:
-        public_key = serialization.load_pem_public_key(public_key_pem.encode('utf-8'))
-        signature_bytes = bytes.fromhex(ecdsa_signature_hex)
-        
-        public_key.verify(
-            signature_bytes,
-            payload_json.encode('utf-8'),
-            ec.ECDSA(hashes.SHA256())
-        )
+        public_key = serialization.load_pem_public_key(row_key[0].encode('utf-8'))
+        public_key.verify(bytes.fromhex(ecdsa_signature_hex), payload_json.encode('utf-8'), ec.ECDSA(hashes.SHA256()))
     except Exception as e:
         conn.close()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, 
-            detail=f"Falha de blindagem: Assinatura ECDSA inválida. Detalhe: {str(e)}"
-        )
+        raise HTTPException(status_code=400, detail=f"Assinatura ECDSA inválida: {str(e)}")
     
     cursor.execute('SELECT balance FROM wallet_balances WHERE wallet_address = ? AND asset_code = ?', (wallet_from, asset_code))
     row_balance = cursor.fetchone()
@@ -453,11 +431,10 @@ async def secure_transfer_biometric(
     
     if current_balance < amount:
         conn.close()
-        raise HTTPException(status_code=400, detail="Saldo insuficiente para realizar a transferência.")
+        raise HTTPException(status_code=400, detail="Saldo insuficiente.")
         
     cursor.execute('UPDATE wallet_balances SET balance = balance - ?, last_updated = ? WHERE wallet_address = ? AND asset_code = ?', 
                    (amount, time.time(), wallet_from, asset_code))
-                   
     cursor.execute('INSERT OR IGNORE INTO wallet_balances (wallet_address, asset_code, balance, last_updated) VALUES (?, ?, 0.0, ?)',
                    (wallet_to, asset_code, time.time()))
     cursor.execute('UPDATE wallet_balances SET balance = balance + ?, last_updated = ? WHERE wallet_address = ? AND asset_code = ?', 
@@ -465,25 +442,16 @@ async def secure_transfer_biometric(
 
     cursor.execute('INSERT INTO used_nonces (nonce, used_at) VALUES (?, ?)', (nonce, current_time))
 
-    aes_nonce = os.urandom(12)
-    encrypted_data = cpu_10000bytes.execute_aes_encrypt(
-        payload_json.encode('utf-8'), 
-        aes_nonce
-    )
+    encrypted_data = cpu_10000bytes.execute_aes_encrypt(payload_json.encode('utf-8'), os.urandom(12))
     
     cursor.execute('SELECT block_index, block_hash FROM ledger ORDER BY block_index DESC LIMIT 1')
     last_block = cursor.fetchone()
-    
-    previous_index = last_block[0]
-    previous_hash = last_block[1]
-    new_index = previous_index + 1
+    new_index = last_block[0] + 1
     new_timestamp = time.time()
     
     block_string = json.dumps({
-        "index": new_index,
-        "timestamp": new_timestamp,
-        "payload": encrypted_data,
-        "previous_hash": previous_hash
+        "index": new_index, "timestamp": new_timestamp,
+        "payload": encrypted_data, "previous_hash": last_block[1]
     }, sort_keys=True, separators=(',', ':'))
     
     new_block_hash = cpu_10000bytes.execute_custom_hash(block_string)
@@ -491,20 +459,15 @@ async def secure_transfer_biometric(
     cursor.execute('''
         INSERT INTO ledger (block_index, timestamp, payload, previous_hash, block_hash)
         VALUES (?, ?, ?, ?, ?)
-    ''', (new_index, new_timestamp, json.dumps(encrypted_data), previous_hash, new_block_hash))
+    ''', (new_index, new_timestamp, json.dumps(encrypted_data), last_block[1], new_block_hash))
     
     conn.commit()
     conn.close()
     
     return {
         "status": "200 OK",
-        "message": f"Transferência soberana de {amount} {asset_code} processada com ALU 10KB, WAL Mode e Anti-Spoofing!",
+        "message": "Transferência soberana processada com sucesso!",
         "block_index": new_index,
-        "processor_telemetry": encrypted_data["processor_status"],
-        "encrypted_envelope": {
-            "ciphertext_hex": encrypted_data["ciphertext_hex"],
-            "nonce_hex": encrypted_data["nonce_hex"]
-        },
         "block_hash": new_block_hash
     }
 
@@ -522,21 +485,122 @@ async def get_audit_chain():
             parsed_payload = json.loads(row["payload"])
         except:
             parsed_payload = row["payload"]
-            
         ledger_list.append({
-            "index": row["block_index"],
-            "timestamp": row["timestamp"],
-            "payload": parsed_payload,
-            "previous_hash": row["previous_hash"],
-            "block_hash": row["block_hash"]
+            "index": row["block_index"], "timestamp": row["timestamp"],
+            "payload": parsed_payload, "previous_hash": row["previous_hash"], "block_hash": row["block_hash"]
         })
     conn.close()
     return {"chain_length": len(ledger_list), "ledger": ledger_list}
 
 
 # ==========================================
-# 6. EXECUÇÃO PARA DEPLOY / LOCAL
+# 6. MÓDULO DE HELP DESK BLINDADO
+# ==========================================
+@app.post("/api/v1/support/ticket/create", summary="Criar Chamado de Suporte Cifrado")
+async def create_support_ticket(
+    wallet_address: str = Form(...),
+    subject: str = Form(...),
+    priority: str = Form("MEDIUM"),
+    initial_message: str = Form(...)
+):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT wallet_address FROM wallet_keys WHERE wallet_address = ?', (wallet_address,))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="Endereço de carteira não registrado.")
+
+    ticket_id = "TICK-" + hashlib.sha256(f"{wallet_address}-{time.time()}".encode()).hexdigest()[:12].upper()
+    current_time = time.time()
+
+    encrypted_subject = cpu_10000bytes.execute_message_encrypt(subject)
+    encrypted_msg = cpu_10000bytes.execute_message_encrypt(initial_message)
+
+    cursor.execute('''
+        INSERT INTO support_tickets (ticket_id, wallet_address, subject_encrypted, status, priority, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (ticket_id, wallet_address, json.dumps(encrypted_subject), "OPEN", priority, current_time, current_time))
+
+    cursor.execute('''
+        INSERT INTO ticket_messages (ticket_id, sender_address, encrypted_content, nonce_hex, timestamp)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (ticket_id, wallet_address, json.dumps(encrypted_msg), encrypted_msg["nonce_hex"], current_time))
+
+    conn.commit()
+    conn.close()
+
+    return {"status": "200 OK", "ticket_id": ticket_id, "ticket_status": "OPEN"}
+
+@app.post("/api/v1/support/ticket/reply", summary="Enviar Resposta em Chamado de Suporte")
+async def reply_support_ticket(
+    ticket_id: str = Form(...),
+    sender_address: str = Form(...),
+    message_content: str = Form(...)
+):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT status FROM support_tickets WHERE ticket_id = ?', (ticket_id,))
+    ticket = cursor.fetchone()
+    if not ticket or ticket["status"] == "CLOSED":
+        conn.close()
+        raise HTTPException(status_code=400, detail="Chamado não encontrado ou fechado.")
+
+    current_time = time.time()
+    encrypted_msg = cpu_10000bytes.execute_message_encrypt(message_content)
+
+    cursor.execute('''
+        INSERT INTO ticket_messages (ticket_id, sender_address, encrypted_content, nonce_hex, timestamp)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (ticket_id, sender_address, json.dumps(encrypted_msg), encrypted_msg["nonce_hex"], current_time))
+
+    cursor.execute('UPDATE support_tickets SET updated_at = ?, status = "IN_PROGRESS" WHERE ticket_id = ?', (current_time, ticket_id))
+    conn.commit()
+    conn.close()
+
+    return {"status": "200 OK", "message": "Resposta adicionada ao canal do ticket."}
+
+@app.get("/api/v1/support/ticket/{ticket_id}", summary="Auditar Histórico de um Chamado de Suporte")
+async def get_support_ticket_details(ticket_id: str):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT * FROM support_tickets WHERE ticket_id = ?', (ticket_id,))
+    ticket = cursor.fetchone()
+    if not ticket:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Chamado não encontrado.")
+
+    cursor.execute('SELECT sender_address, encrypted_content, timestamp FROM ticket_messages WHERE ticket_id = ? ORDER BY timestamp ASC', (ticket_id,))
+    messages = cursor.fetchall()
+    conn.close()
+
+    msg_list = []
+    for m in messages:
+        try:
+            parsed_content = json.loads(m["encrypted_content"])
+        except:
+            parsed_content = m["encrypted_content"]
+        msg_list.append({
+            "sender": m["sender_address"],
+            "timestamp": m["timestamp"],
+            "encrypted_envelope": parsed_content
+        })
+
+    return {
+        "ticket_id": ticket["ticket_id"],
+        "wallet_address": ticket["wallet_address"],
+        "status": ticket["status"],
+        "priority": ticket["priority"],
+        "created_at": ticket["created_at"],
+        "messages": msg_list
+    }
+
+
+# ==========================================
+# 7. EXECUÇÃO
 # ==========================================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
-    uvicorn.run("saint:app", host="0.0.0.0", port=port, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
