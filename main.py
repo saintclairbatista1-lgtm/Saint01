@@ -68,7 +68,7 @@ def init_db():
     # Verifica se já existe o Bloco Gênesis no Ledger
     cursor.execute('SELECT COUNT(*) FROM ledger')
     if cursor.fetchone()[0] == 0:
-        genesis_payload = "Genesis Block (S Message Sovereign Assets + Auto-Pruning Nonces + 10000B ALU)"
+        genesis_payload = "Genesis Block (S Message Sovereign Assets + Auto-Pruning Nonces + 10000B ALU + Proof of Possession)"
         genesis_hash = "0" * 128
         cursor.execute('''
             INSERT INTO ledger (block_index, timestamp, payload, previous_hash, block_hash)
@@ -148,8 +148,8 @@ cpu_10000bytes.load_master_buffer(b"s-message-secure-master-buffer-10000-bytes-2
 # ==========================================
 app = FastAPI(
     title="S Message - Sovereign Multicurrency Wallet & Secure Chat",
-    version="6.0.0",
-    description="API blindada com suporte a USDT, EURO_DIGITAL, BRX, SDC, SDT, ALU proprietária de 10000 Bytes e anti-replay"
+    version="6.1.0",
+    description="API blindada com suporte a ativos soberanos, ALU de 10000B, anti-replay e Prova de Posse (PoP)"
 )
 
 request_history = defaultdict(list)
@@ -215,21 +215,34 @@ async def root():
         "project": "S Message",
         "processor_architecture": "Custom 10000-Byte Virtual ALU Active (Chat & Ledger)",
         "biometric_shield": "OpenCV Facial Verification Active",
-        "cryptography": "True Self-Custody ECDSA + Anti-Replay + 10000B Chat Encryption",
+        "cryptography": "True Self-Custody ECDSA + Proof of Possession (PoP) + Anti-Replay",
         "database": "SQLite Persistent Storage",
         "supported_assets": SUPPORTED_ASSETS
     }
 
-@app.post("/api/v1/wallet/register", summary="Registrar Chave Pública da Carteira (Autocustódia)")
+@app.post("/api/v1/wallet/register", summary="Registrar Chave Pública com Prova de Posse (PoP)")
 async def register_wallet(
-    public_key_pem: str = Form(..., description="Chave pública PEM gerada localmente pelo usuário")
+    public_key_pem: str = Form(..., description="Chave pública PEM gerada localmente pelo usuário"),
+    challenge_nonce: str = Form(..., description="Desafio randômico gerado pelo cliente"),
+    ecdsa_signature_hex: str = Form(..., description="Assinatura digital gerada com a chave privada sobre o challenge_nonce")
 ):
     try:
         pub_key = serialization.load_pem_public_key(public_key_pem.encode('utf-8'))
         if not isinstance(pub_key, ec.EllipticCurvePublicKey):
             raise HTTPException(status_code=400, detail="Apenas chaves baseadas em Curvas Elípticas (ECDSA) são suportadas.")
+        
+        # Validação matemática da Prova de Posse (Garante que o cliente detém a chave privada)
+        signature_bytes = bytes.fromhex(ecdsa_signature_hex)
+        pub_key.verify(
+            signature_bytes,
+            challenge_nonce.encode('utf-8'),
+            ec.ECDSA(hashes.SHA256())
+        )
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Chave pública PEM inválida: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail=f"Falha na Prova de Posse: A assinatura do desafio é inválida ou a chave PEM está corrompida. Detalhe: {str(e)}"
+        )
     
     wallet_address = hashlib.sha256(public_key_pem.strip().encode('utf-8')).hexdigest()[:40]
     
@@ -244,7 +257,7 @@ async def register_wallet(
     
     return {
         "status": "200 OK",
-        "message": "Chave pública registrada com sucesso no servidor. Sua chave privada permanece estritamente segura no seu dispositivo.",
+        "message": "Chave pública validada via Prova de Posse e registrada com sucesso!",
         "wallet_address": wallet_address
     }
 
@@ -480,4 +493,4 @@ async def get_audit_chain():
 # ==========================================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+    uvicorn.run("saint:app", host="0.0.0.0", port=port, reload=True)
