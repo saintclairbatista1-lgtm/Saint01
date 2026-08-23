@@ -153,3 +153,68 @@ async def verify_ledger_integrity():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("site:app", host="127.0.0.1", port=8765, reload=True)
+import os
+import json
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+# 1. Geração de uma chave mestra segura de 32 bytes (256 bits) para o AES
+# Nota: Em produção, armazene esta chave de forma segura em variáveis de ambiente.
+AES_MASTER_KEY = AESGCM.generate_key(bit_length=256)
+aesgcm = AESGCM(AES_MASTER_KEY)
+
+def encrypt_data(data_dict: dict) -> dict:
+    """
+    Criptografa um dicionário/payload utilizando AES-256-GCM.
+    Retorna o texto cifrado e o Nonce (IV) em formato hexadecimal.
+    """
+    # Gera um Nonce aleatório de 12 bytes (96 bits) recomendado para o modo GCM
+    nonce = os.urandom(12)
+    
+    # Serializa o dicionário para bytes em formato JSON consistente
+    message_bytes = json.dumps(data_dict, sort_keys=True).encode('utf-8')
+    
+    # Realiza a criptografia autenticada
+    ciphertext = aesgcm.encrypt(nonce, message_bytes, None)
+    
+    return {
+        "ciphertext_hex": ciphertext.hex(),
+        "nonce_hex": nonce.hex()
+    }
+
+def decrypt_data(ciphertext_hex: str, nonce_hex: str) -> dict:
+    """
+    Descriptografa dados protegidos por AES-256-GCM a partir de strings hexadecimais.
+    Valida automaticamente a integridade do conteúdo.
+    """
+    try:
+        nonce = bytes.fromhex(nonce_hex)
+        ciphertext = bytes.fromhex(ciphertext_hex)
+        
+        # Realiza a descriptografia e validação de autenticidade
+        decrypted_bytes = aesgcm.decrypt(nonce, ciphertext, None)
+        
+        # Converte os bytes de volta para dicionário Python
+        return json.loads(decrypted_bytes.decode('utf-8'))
+    except Exception as e:
+        raise ValueError(f"Falha na descriptografia AES-GCM: Dados corrompidos ou chave inválida. Erro: {str(e)}")
+
+# ==========================================
+# Exemplo prático de uso local (Teste rápido)
+# ==========================================
+if __name__ == "__main__":
+    # Dados de exemplo que você deseja proteger
+    payload_original = {
+        "wallet_from": "saint-wallet-01",
+        "wallet_to": "target-wallet-09",
+        "amount": 1500.50
+    }
+    
+    # 1. Encriptando
+    dados_cifrados = encrypt_data(payload_original)
+    print("--- DADOS CIFRADOS (AES-256-GCM) ---")
+    print(dados_cifrados)
+    
+    # 2. Decriptando
+    payload_recuperado = decrypt_data(dados_cifrados["ciphertext_hex"], dados_cifrados["nonce_hex"])
+    print("\n--- DADOS RECUPERADOS ---")
+    print(payload_recuperado)
