@@ -46,7 +46,7 @@ def init_db():
         )
     ''')
     
-    # Tabela de Registro de Chaves Públicas (Autocustódia)
+    # Tabela de Registro de Chaves Públicas (Autocustódia Real)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS wallet_keys (
             wallet_address TEXT PRIMARY KEY,
@@ -60,7 +60,7 @@ def init_db():
     # Verifica se já existe o Bloco Gênesis no Ledger
     cursor.execute('SELECT COUNT(*) FROM ledger')
     if cursor.fetchone()[0] == 0:
-        genesis_payload = "Genesis Block (S Message Asymmetric Multicurrency Wallet + SQLite)"
+        genesis_payload = "Genesis Block (S Message True Self-Custody Wallet + SQLite)"
         genesis_hash = "0" * 128
         cursor.execute('''
             INSERT INTO ledger (block_index, timestamp, payload, previous_hash, block_hash)
@@ -106,7 +106,7 @@ class Custom500ByteProcessor:
         
         ciphertext = aesgcm.encrypt(nonce_bytes, plaintext_bytes, None)
         return {
-            "processor_status": "OK (500-Byte ALU Active + Asymmetric Wallet Ledger)",
+            "processor_status": "OK (500-Byte ALU Active + True Self-Custody Ledger)",
             "ciphertext_hex": ciphertext.hex(),
             "nonce_hex": nonce_bytes.hex(),
             "register_capacity": "500 Bytes (4000 bits)"
@@ -123,9 +123,9 @@ cpu_500bytes.load_master_buffer(b"s-message-secure-master-buffer-500-bytes-2026"
 # 2. INICIALIZAÇÃO E BLINDAGEM DO FASTAPI
 # ==========================================
 app = FastAPI(
-    title="S Message - Asymmetric Self-Custody Wallet & Ledger",
-    version="3.0.0",
-    description="API blindada com chaves assimétricas ECDSA, microprocessador de 500 bytes, biometria e carteira multimoeda (SDC, SDT, USD, EUR, BRX)"
+    title="S Message - True Self-Custody Wallet & Ledger",
+    version="3.1.0",
+    description="API blindada com autocustódia estrita (servidor não conhece chaves privadas), microprocessador de 500 bytes e carteira multimoeda (SDC, SDT, USD, EUR, BRX)"
 )
 
 request_history = defaultdict(list)
@@ -180,7 +180,7 @@ def verify_facial_biometrics(image_bytes: bytes) -> bool:
 
 
 # ==========================================
-# 5. ROTAS DA API (WALLET ASSIMÉTRICA E LEDGER)
+# 5. ROTAS DA API (AUTOCUSTÓDIA ESTREITA E LEDGER)
 # ==========================================
 @app.get("/", summary="Status do Sistema S Message")
 async def root():
@@ -189,47 +189,47 @@ async def root():
         "project": "S Message",
         "processor_architecture": "Custom 500-Byte Virtual ALU Active",
         "biometric_shield": "OpenCV Facial Verification Active",
-        "cryptography": "ECDSA Asymmetric Signatures Enabled",
+        "cryptography": "True Self-Custody (Server holds ONLY Public Keys)",
         "database": "SQLite Persistent Storage",
         "supported_assets": SUPPORTED_ASSETS
     }
 
-@app.post("/api/v1/wallet/create", summary="Gerar Nova Carteira (Par de Chaves Assimétricas)")
-async def create_wallet():
-    """Gera uma chave privada e pública ECDSA (SECP256R1). A chave pública codificada vira o endereço da wallet."""
-    private_key = ec.generate_private_key(ec.SECP256R1())
-    public_key = private_key.public_key()
+@app.post("/api/v1/wallet/register", summary="Registrar Chave Pública da Carteira (Autocustódia)")
+async def register_wallet(
+    public_key_pem: str = Form(..., description="Chave pública PEM gerada localmente pelo usuário")
+):
+    """
+    O usuário gera seu par de chaves no seu próprio dispositivo (client-side).
+    Ele envia APENAS a chave pública. O servidor valida a estrutura, deriva o endereço
+    e armazena a chave pública para futura checagem de assinaturas. A chave privada NUNCA vem ao servidor.
+    """
+    try:
+        # Valida se a chave pública é válida pelo formato PEM
+        pub_key = serialization.load_pem_public_key(public_key_pem.encode('utf-8'))
+        
+        # Garante que é uma chave ECDSA
+        if not isinstance(pub_key, ec.EllipticCurvePublicKey):
+            raise HTTPException(status_code=400, detail="Apenas chaves baseadas em Curvas Elípticas (ECDSA) são suportadas.")
+            
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Chave pública PEM inválida: {str(e)}")
     
-    # Serialização PEM
-    priv_pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption()
-    ).decode('utf-8')
-    
-    pub_pem = public_key.public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo
-    ).decode('utf-8')
-    
-    # O endereço da carteira é o hash SHA-256 da chave pública em formato hex
-    wallet_address = hashlib.sha256(pub_pem.encode('utf-8')).hexdigest()[:40]
+    # Derivação determinística do endereço da carteira a partir da chave pública
+    wallet_address = hashlib.sha256(public_key_pem.strip().encode('utf-8')).hexdigest()[:40]
     
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute('''
         INSERT OR REPLACE INTO wallet_keys (wallet_address, public_key_pem, created_at)
         VALUES (?, ?, ?)
-    ''', (wallet_address, pub_pem, time.time()))
+    ''', (wallet_address, public_key_pem.strip(), time.time()))
     conn.commit()
     conn.close()
     
     return {
         "status": "200 OK",
-        "wallet_address": wallet_address,
-        "private_key_pem": priv_pem,  # Guarde isso com segurança no cliente/usuário!
-        "public_key_pem": pub_pem,
-        "warning": "Guarde sua chave privada com segurança. O servidor armazena apenas a chave pública para auditoria."
+        "message": "Chave pública registrada com sucesso no servidor. Sua chave privada permanece estritamente segura no seu dispositivo.",
+        "wallet_address": wallet_address
     }
 
 @app.get("/api/v1/wallet/{wallet_address}", summary="Consultar Saldos Multimoeda")
@@ -278,16 +278,16 @@ async def wallet_deposit(
         "message": f"Depósito de {amount} {asset_code} realizado com sucesso para {wallet_address}."
     }
 
-@app.post("/api/v1/secure-transfer-biometric", summary="Transferência Segura com Assinatura ECDSA, Biometria e Ledger")
+@app.post("/api/v1/secure-transfer-biometric", summary="Transferência Segura com Assinatura ECDSA Local, Biometria e Ledger")
 async def secure_transfer_biometric(
     asset_code: str = Form(..., description="Ex: SDC, SDT, USD_DIGITAL, EUR_DIGITAL, BRX"),
     amount: float = Form(..., description="Valor da transação"),
-    wallet_from: str = Form(..., description="Endereço da carteira de origem (hash da chave pública)"),
+    wallet_from: str = Form(..., description="Endereço da carteira de origem"),
     wallet_to: str = Form(..., description="Carteira de destino"),
-    ecdsa_signature_hex: str = Form(..., description="Assinatura digital ECDSA em hexadecimal gerada pela chave privada do remetente"),
+    ecdsa_signature_hex: str = Form(..., description="Assinatura digital ECDSA gerada localmente no dispositivo do remetente"),
     face_image: UploadFile = File(..., description="Foto do rosto para validação biométrica")
 ):
-    # 0. Validação do Ativo e Valores
+    # 0. Validações iniciais
     if asset_code not in SUPPORTED_ASSETS:
         raise HTTPException(status_code=400, detail="Ativo não suportado pelo sistema.")
     if amount <= 0:
@@ -301,7 +301,7 @@ async def secure_transfer_biometric(
             detail="Falha biométrica: Rosto não validado."
         )
         
-    # 2. Busca da Chave Pública do Remetente no Banco
+    # 2. Busca da Chave Pública associada à carteira de origem
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute('SELECT public_key_pem FROM wallet_keys WHERE wallet_address = ?', (wallet_from,))
@@ -313,7 +313,7 @@ async def secure_transfer_biometric(
     
     public_key_pem = row_key[0]
     
-    # 3. Validação Criptográfica Assinatura ECDSA
+    # 3. Validação Criptográfica da Assinatura ECDSA
     payload = {
         "asset_code": asset_code,
         "amount": amount,
@@ -326,7 +326,6 @@ async def secure_transfer_biometric(
         public_key = serialization.load_pem_public_key(public_key_pem.encode('utf-8'))
         signature_bytes = bytes.fromhex(ecdsa_signature_hex)
         
-        # Verifica a assinatura sobre o payload json
         public_key.verify(
             signature_bytes,
             payload_json.encode('utf-8'),
@@ -336,10 +335,10 @@ async def secure_transfer_biometric(
         conn.close()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, 
-            detail=f"Falha de blindagem: Assinatura ECDSA inválida ou corrompida. Detalhe: {str(e)}"
+            detail=f"Falha de blindagem: Assinatura ECDSA inválida. Apenas o verdadeiro dono da chave privada pode assinar esta transação."
         )
     
-    # 4. Verificação e Operação de Saldos no SQLite (Transacional)
+    # 4. Operação de Saldos no SQLite (Transacional)
     cursor.execute('SELECT balance FROM wallet_balances WHERE wallet_address = ? AND asset_code = ?', (wallet_from, asset_code))
     row_balance = cursor.fetchone()
     current_balance = row_balance[0] if row_balance else 0.0
@@ -395,7 +394,7 @@ async def secure_transfer_biometric(
     
     return {
         "status": "200 OK",
-        "message": f"Transferência de {amount} {asset_code} assinada via ECDSA, validada por biometria e gravada no Ledger!",
+        "message": f"Transferência de {amount} {asset_code} autenticada por chave privada local, validada por biometria e gravada no Ledger!",
         "block_index": new_index,
         "processor_telemetry": encrypted_data["processor_status"],
         "encrypted_envelope": {
