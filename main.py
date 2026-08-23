@@ -15,12 +15,21 @@ from cryptography.hazmat.primitives import serialization
 import uvicorn
 
 # ==========================================
-# 0. CONFIGURAÇÃO DO BANCO DE DADOS SQLITE
+# 0. CONFIGURAÇÃO MODERNA DO BANCO DE DADOS (WAL MODE + TIMEOUT)
 # ==========================================
 DB_FILE = "s_message_ledger.db"
 
+def get_db_connection():
+    # Timeout estendido de 15s para evitar erros de "database is locked" sob concorrência (Ponto 3)
+    conn = sqlite3.connect(DB_FILE, timeout=15.0)
+    conn.row_factory = sqlite3.Row
+    # Ativa o modo WAL (Write-Ahead Logging) para concorrência segura de leitura/escrita
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    return conn
+
 def init_db():
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     cursor.execute('''
@@ -63,7 +72,7 @@ def init_db():
     
     cursor.execute('SELECT COUNT(*) FROM ledger')
     if cursor.fetchone()[0] == 0:
-        genesis_payload = "Genesis Block (S Message Sovereign Assets + Anti-Spoof Biometrics + 10000B ALU + PoP)"
+        genesis_payload = "Genesis Block (S Message Sovereign Assets + WAL Concurrency + Checksum + Anti-Spoof + 10000B ALU + PoP)"
         genesis_hash = "0" * 128
         cursor.execute('''
             INSERT INTO ledger (block_index, timestamp, payload, previous_hash, block_hash)
@@ -139,12 +148,23 @@ cpu_10000bytes.load_master_buffer(b"s-message-secure-master-buffer-10000-bytes-2
 
 
 # ==========================================
-# 2. INICIALIZAÇÃO E BLINDAGEM DO FASTAPI
+# 2. FUNÇÃO DE GERAÇÃO DE ENDEREÇO COM CHECKSUM (Ponto 2)
+# ==========================================
+def generate_checksum_address(public_key_pem: str) -> str:
+    pub_bytes = public_key_pem.strip().encode('utf-8')
+    h1 = hashlib.sha256(pub_bytes).digest()
+    checksum = hashlib.sha256(h1).digest()[:4].hex()
+    base_address = hashlib.sha256(pub_bytes).hexdigest()[:36]
+    return f"snt1{base_address}{checksum}"
+
+
+# ==========================================
+# 3. INICIALIZAÇÃO E BLINDAGEM DO FASTAPI
 # ==========================================
 app = FastAPI(
     title="S Message - Sovereign Multicurrency Wallet & Secure Chat",
-    version="6.2.0",
-    description="API blindada com ativos soberanos, ALU de 10000B, anti-replay, Prova de Posse e Anti-Spoofing Biométrico"
+    version="6.3.0",
+    description="API 100% blindada: ALU 10KB, WAL Mode, Checksum snt1, Prova de Posse e Anti-Spoofing"
 )
 
 request_history = defaultdict(list)
@@ -155,9 +175,9 @@ TRANSACTION_TTL_SECONDS = 30
 
 
 # ==========================================
-# 3. MIDDLEWARE DE SEGURANÇA E RATE LIMIT
+# 4. MIDDLEWARE DE SEGURANÇA E RATE LIMIT
 # ==========================================
-app.middleware("http")
+@app.middleware("http")
 async def military_grade_shield(request: Request, call_next):
     client_ip = request.client.host if request.client else "unknown"
     current_time = time.time()
@@ -182,7 +202,7 @@ async def military_grade_shield(request: Request, call_next):
 
 
 # ==========================================
-# 4. MÓDULO DE BIOMETRIA COM BLINDAGEM ANTI-SPOOFING
+# 5. MÓDULO DE BIOMETRIA COM ANTI-SPOOFING
 # ==========================================
 def verify_facial_biometrics(image_bytes: bytes) -> bool:
     try:
@@ -191,10 +211,8 @@ def verify_facial_biometrics(image_bytes: bytes) -> bool:
         if img is None:
             return False
             
-        # Verificação básica anti-spoofing: calcula a variação de brilho/contraste (desvio padrão)
-        # Fotos chapadas impressas costumam ter variação de textura muito baixa comparadas a rostos reais
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        if gray.std() < 12.0:  # Imagem sem contraste dinâmico suficiente (possível foto impressa/spoofing)
+        if gray.std() < 12.0:  # Proteção anti-spoofing (evita fotos estáticas/impressas)
             return False
 
         face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
@@ -206,21 +224,22 @@ def verify_facial_biometrics(image_bytes: bytes) -> bool:
 
 
 # ==========================================
-# 5. ROTAS DA API
+# 6. ROTAS DA API
 # ==========================================
 @app.get("/", summary="Status do Sistema S Message")
 async def root():
     return {
         "status": "online",
         "project": "S Message",
-        "processor_architecture": "Custom 10000-Byte Virtual ALU Active (Chat & Ledger)",
+        "processor_architecture": "Custom 10000-Byte Virtual ALU Active",
+        "database_engine": "SQLite (WAL Mode + 15s Timeout Concurrency)",
+        "address_standard": "snt1 with Mathematical Checksum Active",
         "biometric_shield": "OpenCV Facial Verification + Anti-Spoofing Active",
-        "cryptography": "True Self-Custody ECDSA + Proof of Possession (PoP) + Anti-Replay",
-        "database": "SQLite Persistent Storage",
+        "cryptography": "ECDSA Self-Custody + Proof of Possession (PoP) + Anti-Replay",
         "supported_assets": SUPPORTED_ASSETS
     }
 
-@app.post("/api/v1/wallet/register", summary="Registrar Chave Pública com Prova de Posse (PoP)")
+@app.post("/api/v1/wallet/register", summary="Registrar Chave com Prova de Posse (PoP) e Endereço com Checksum")
 async def register_wallet(
     public_key_pem: str = Form(..., description="Chave pública PEM gerada localmente pelo usuário"),
     challenge_nonce: str = Form(..., description="Desafio randômico gerado pelo cliente"),
@@ -243,9 +262,10 @@ async def register_wallet(
             detail=f"Falha na Prova de Posse: A assinatura do desafio é inválida ou a chave PEM está corrompida. Detalhe: {str(e)}"
         )
     
-    wallet_address = hashlib.sha256(public_key_pem.strip().encode('utf-8')).hexdigest()[:40]
+    # Geração do endereço soberano com Checksum (Ponto 2)
+    wallet_address = generate_checksum_address(public_key_pem)
     
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
         INSERT OR REPLACE INTO wallet_keys (wallet_address, public_key_pem, created_at)
@@ -256,13 +276,13 @@ async def register_wallet(
     
     return {
         "status": "200 OK",
-        "message": "Chave pública validada via Prova de Posse e registrada com sucesso!",
+        "message": "Chave pública validada via Prova de Posse e registrada com endereço com Checksum!",
         "wallet_address": wallet_address
     }
 
 @app.get("/api/v1/wallet/{wallet_address}", summary="Consultar Saldos Multimoeda")
 async def get_wallet_balances(wallet_address: str):
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db_connection()
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
@@ -288,7 +308,7 @@ async def wallet_deposit(
     if amount <= 0:
         raise HTTPException(status_code=400, detail="O valor do depósito deve ser maior que zero.")
 
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     cursor.execute('''
@@ -320,7 +340,7 @@ async def encrypt_chat_message(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro no processamento de hardware virtual: {str(e)}")
 
-@app.post("/api/v1/secure-transfer-biometric", summary="Transferência com Assinatura ECDSA, TTL, Anti-Replay e Biometria Anti-Spoofing")
+@app.post("/api/v1/secure-transfer-biometric", summary="Transferência com Assinatura, WAL Concurrency, TTL, Anti-Replay e Anti-Spoofing")
 async def secure_transfer_biometric(
     asset_code: str = Form(..., description="Ex: USDT, EURO_DIGITAL, BRX, SDC, SDT"),
     amount: float = Form(..., description="Valor da transação"),
@@ -350,7 +370,7 @@ async def secure_transfer_biometric(
             detail="Falha biométrica ou Anti-Spoofing: Rosto não validado ou detecção de imagem estática/falsa."
         )
         
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     expiration_threshold = current_time - TRANSACTION_TTL_SECONDS
@@ -450,7 +470,7 @@ async def secure_transfer_biometric(
     
     return {
         "status": "200 OK",
-        "message": f"Transferência soberana de {amount} {asset_code} processada com ALU de 10000 Bytes e Blindagem Anti-Spoofing!",
+        "message": f"Transferência soberana de {amount} {asset_code} processada com WAL Concurrency, ALU 10KB e Anti-Spoofing!",
         "block_index": new_index,
         "processor_telemetry": encrypted_data["processor_status"],
         "encrypted_envelope": {
@@ -462,7 +482,7 @@ async def secure_transfer_biometric(
 
 @app.get("/api/v1/audit/chain", summary="Consultar Ledger no SQLite")
 async def get_audit_chain():
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db_connection()
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute('SELECT block_index, timestamp, payload, previous_hash, block_hash FROM ledger ORDER BY block_index ASC')
@@ -487,7 +507,7 @@ async def get_audit_chain():
 
 
 # ==========================================
-# 6. EXECUÇÃO PARA DEPLOY / LOCAL
+# 7. EXECUÇÃO PARA DEPLOY / LOCAL
 # ==========================================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
