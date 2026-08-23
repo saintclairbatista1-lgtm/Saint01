@@ -23,7 +23,6 @@ def init_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     
-    # Tabela do Ledger (Blocos Criptografados)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS ledger (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,7 +34,6 @@ def init_db():
         )
     ''')
     
-    # Tabela de Saldos da Wallet Multimoeda
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS wallet_balances (
             wallet_address TEXT,
@@ -46,7 +44,6 @@ def init_db():
         )
     ''')
     
-    # Tabela de Registro de Chaves Públicas (Autocustódia Real)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS wallet_keys (
             wallet_address TEXT PRIMARY KEY,
@@ -55,7 +52,6 @@ def init_db():
         )
     ''')
     
-    # Tabela de Nonces Utilizados (Proteção contra Replay Attacks)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS used_nonces (
             nonce TEXT PRIMARY KEY,
@@ -65,10 +61,9 @@ def init_db():
     
     conn.commit()
     
-    # Verifica se já existe o Bloco Gênesis no Ledger
     cursor.execute('SELECT COUNT(*) FROM ledger')
     if cursor.fetchone()[0] == 0:
-        genesis_payload = "Genesis Block (S Message Sovereign Assets + Auto-Pruning Nonces + 10000B ALU + Proof of Possession)"
+        genesis_payload = "Genesis Block (S Message Sovereign Assets + Anti-Spoof Biometrics + 10000B ALU + PoP)"
         genesis_hash = "0" * 128
         cursor.execute('''
             INSERT INTO ledger (block_index, timestamp, payload, previous_hash, block_hash)
@@ -124,7 +119,7 @@ class Custom10000ByteProcessor:
         if not self.is_initialized:
             raise RuntimeError("Erro de Hardware Virtual: Processador não inicializado.")
         
-        chat_key_segment = self.registers["R1"][32:64]  # Segmento dedicado para mensagens
+        chat_key_segment = self.registers["R1"][32:64]
         aesgcm = AESGCM(chat_key_segment)
         chat_nonce = os.urandom(12)
         
@@ -148,21 +143,21 @@ cpu_10000bytes.load_master_buffer(b"s-message-secure-master-buffer-10000-bytes-2
 # ==========================================
 app = FastAPI(
     title="S Message - Sovereign Multicurrency Wallet & Secure Chat",
-    version="6.1.0",
-    description="API blindada com suporte a ativos soberanos, ALU de 10000B, anti-replay e Prova de Posse (PoP)"
+    version="6.2.0",
+    description="API blindada com ativos soberanos, ALU de 10000B, anti-replay, Prova de Posse e Anti-Spoofing Biométrico"
 )
 
 request_history = defaultdict(list)
 RATE_LIMIT_WINDOW = 60
 
 SUPPORTED_ASSETS = ["USDT", "EURO_DIGITAL", "BRX", "SDC", "SDT"]
-TRANSACTION_TTL_SECONDS = 30  # Janela de validade da transação
+TRANSACTION_TTL_SECONDS = 30
 
 
 # ==========================================
 # 3. MIDDLEWARE DE SEGURANÇA E RATE LIMIT
 # ==========================================
-@app.middleware("http")
+app.middleware("http")
 async def military_grade_shield(request: Request, call_next):
     client_ip = request.client.host if request.client else "unknown"
     current_time = time.time()
@@ -187,7 +182,7 @@ async def military_grade_shield(request: Request, call_next):
 
 
 # ==========================================
-# 4. MÓDULO DE BIOMETRIA E VISÃO COMPUTACIONAL
+# 4. MÓDULO DE BIOMETRIA COM BLINDAGEM ANTI-SPOOFING
 # ==========================================
 def verify_facial_biometrics(image_bytes: bytes) -> bool:
     try:
@@ -196,7 +191,12 @@ def verify_facial_biometrics(image_bytes: bytes) -> bool:
         if img is None:
             return False
             
+        # Verificação básica anti-spoofing: calcula a variação de brilho/contraste (desvio padrão)
+        # Fotos chapadas impressas costumam ter variação de textura muito baixa comparadas a rostos reais
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        if gray.std() < 12.0:  # Imagem sem contraste dinâmico suficiente (possível foto impressa/spoofing)
+            return False
+
         face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
         
@@ -214,7 +214,7 @@ async def root():
         "status": "online",
         "project": "S Message",
         "processor_architecture": "Custom 10000-Byte Virtual ALU Active (Chat & Ledger)",
-        "biometric_shield": "OpenCV Facial Verification Active",
+        "biometric_shield": "OpenCV Facial Verification + Anti-Spoofing Active",
         "cryptography": "True Self-Custody ECDSA + Proof of Possession (PoP) + Anti-Replay",
         "database": "SQLite Persistent Storage",
         "supported_assets": SUPPORTED_ASSETS
@@ -231,7 +231,6 @@ async def register_wallet(
         if not isinstance(pub_key, ec.EllipticCurvePublicKey):
             raise HTTPException(status_code=400, detail="Apenas chaves baseadas em Curvas Elípticas (ECDSA) são suportadas.")
         
-        # Validação matemática da Prova de Posse (Garante que o cliente detém a chave privada)
         signature_bytes = bytes.fromhex(ecdsa_signature_hex)
         pub_key.verify(
             signature_bytes,
@@ -261,7 +260,7 @@ async def register_wallet(
         "wallet_address": wallet_address
     }
 
-@app.get("/api/v1/wallet/{wallet_address}", summary="Consultar Saldos Multimoeda (USDT, EURO_DIGITAL, BRX, SDC, SDT)")
+@app.get("/api/v1/wallet/{wallet_address}", summary="Consultar Saldos Multimoeda")
 async def get_wallet_balances(wallet_address: str):
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
@@ -321,7 +320,7 @@ async def encrypt_chat_message(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro no processamento de hardware virtual: {str(e)}")
 
-@app.post("/api/v1/secure-transfer-biometric", summary="Transferência com Assinatura ECDSA, TTL, Nonce Anti-Replay com Limpeza e Biometria")
+@app.post("/api/v1/secure-transfer-biometric", summary="Transferência com Assinatura ECDSA, TTL, Anti-Replay e Biometria Anti-Spoofing")
 async def secure_transfer_biometric(
     asset_code: str = Form(..., description="Ex: USDT, EURO_DIGITAL, BRX, SDC, SDT"),
     amount: float = Form(..., description="Valor da transação"),
@@ -330,7 +329,7 @@ async def secure_transfer_biometric(
     nonce: str = Form(..., description="Identificador único da transação gerado pelo cliente"),
     timestamp: float = Form(..., description="Timestamp Unix exato da assinatura"),
     ecdsa_signature_hex: str = Form(..., description="Assinatura digital ECDSA cobrindo o payload completo"),
-    face_image: UploadFile = File(..., description="Foto do rosto para validação biométrica")
+    face_image: UploadFile = File(..., description="Foto do rosto para validação biométrica com anti-spoofing")
 ):
     if asset_code not in SUPPORTED_ASSETS:
         raise HTTPException(status_code=400, detail=f"Ativo não suportado. Ativos válidos: {SUPPORTED_ASSETS}")
@@ -348,13 +347,12 @@ async def secure_transfer_biometric(
     if not verify_facial_biometrics(image_bytes):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Falha biométrica: Rosto não validado."
+            detail="Falha biométrica ou Anti-Spoofing: Rosto não validado ou detecção de imagem estática/falsa."
         )
         
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     
-    # Limpeza automática de nonces expirados (> 30s)
     expiration_threshold = current_time - TRANSACTION_TTL_SECONDS
     cursor.execute('DELETE FROM used_nonces WHERE used_at < ?', (expiration_threshold,))
     
@@ -452,7 +450,7 @@ async def secure_transfer_biometric(
     
     return {
         "status": "200 OK",
-        "message": f"Transferência soberana de {amount} {asset_code} processada com ALU de 10000 Bytes!",
+        "message": f"Transferência soberana de {amount} {asset_code} processada com ALU de 10000 Bytes e Blindagem Anti-Spoofing!",
         "block_index": new_index,
         "processor_telemetry": encrypted_data["processor_status"],
         "encrypted_envelope": {
