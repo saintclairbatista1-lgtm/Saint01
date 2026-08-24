@@ -322,3 +322,146 @@ async def register_wallet(
         )
     except Exception as e:
         raise HTTPException(
+# ==================================================
+# EXECUÇÃO DO SERVIDOR COMPLETA NO FINAL DO ARQUIVO
+# ==================================================
+    cursor.execute('UPDATE wallet_balances SET balance = balance + ?, last_updated = ? WHERE wallet_address = ? AND asset_code = ?',
+                   (amount, time.time(), wallet_to, asset_code))
+    conn.commit()
+    conn.close()
+
+    return {"status": "200 OK", "mensagem": f"Depósito realizado com sucesso: {amount} {asset_code} na carteira {wallet_address}"}
+
+
+@app.post("/api/v1/secure-transfer-biometric", summary="Transferência blindada: Assinatura + Biometria + Ledger")
+async def secure_transfer_biometric(
+    asset_code: str = Form(...),
+    amount: float = Form(...),
+    wallet_from: str = Form(...),
+    wallet_to: str = Form(...),
+    nonce: str = Form(...),
+    timestamp: float = Form(...),
+    ecdsa_signature_hex: str = Form(...),
+    face_image: UploadFile = File(...)
+):
+    if asset_code not in SUPPORTED_ASSETS or amount <= 0:
+        raise HTTPException(status_code=400, detail="Ativo ou valor inválido.")
+
+    current_time = time.time()
+    if abs(current_time - timestamp) > TRANSACTION_TTL_SECONDS:
+        raise HTTPException(status_code=400, detail="Falha Anti-Replay: Transação expirada.")
+
+    image_bytes = await face_image.read()
+    if not verify_facial_biometrics(image_bytes):
+        raise HTTPException(status_code=401, detail="Falha biométrica ou imagem falsa/estática detectada.")
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # Limpa e verifica nonce único
+    cursor.execute('DELETE FROM used_nonces WHERE used_at < ?', (current_time - TRANSACTION_TTL_SECONDS,))
+    cursor.execute('SELECT nonce FROM used_nonces WHERE nonce = ?', (nonce,))
+    if cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="Falha Anti-Replay: Nonce já utilizado anteriormente.")
+
+    # Carrega chave pública do remetente
+    cursor.execute('SELECT public_key_pem FROM wallet_keys WHERE wallet_address = ?', (wallet_from,))
+    row_key = cursor.fetchone()
+    if not row_key:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Carteira de origem não registrada.")
+
+    payload = {
+        "asset_code": asset_code, "amount": amount,
+        "wallet_from": wallet_from, "wallet_to": wallet_to,
+        "nonce": nonce, "timestamp": timestamp
+    }
+    payload_json = json.dumps(payload, sort_keys=True, separators=(',', ':'))
+
+    # Valida assinatura ECDSA
+    try:
+        public_key = serialization.load_pem_public_key(row_key[0].encode('utf-8'))
+        public_key.verify(bytes.fromhex(ecdsa_signature_hex), payload_json.encode('utf-8'), ec.ECDSA(hashes.SHA256()))
+    except Exception as e:
+        conn.close()
+        raise HTTPException(status_code=400, detail=f"Assinatura inválida: {str(e)}")
+
+    # Verifica e executa movimentação saldo
+    cursor.execute('SELECT balance FROM wallet_balances WHERE wallet_address = ? AND asset_code = ?', (wallet_from, asset_code))
+    row_balance = cursor.fetchone()
+    current_balance = row_balance[0] if row_balance else 0.0
+
+    if current_balance < amount:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Saldo insuficiente para realizar transferência.")
+
+    cursor.execute('UPDATE wallet_balances SET balance = balance - ?, last_updated = ? WHERE wallet_address = ? AND asset_code = ?',
+                   (amount, time.time(), wallet_from, asset_code))
+    cursor.execute('INSERT OR IGNORE INTO wallet_balances (wallet_address, asset_code, balance, last_updated) VALUES (?, ?, 0.0, ?)',
+                   (wallet_to, asset_code, time.time()))
+    cursor.execute('UPDATE wallet_balances SET balance = balance + ?, last_updated = ? WHERE wallet_address = ? AND asset_code = ?',
+                   (amount, time.time(), wallet_to, asset_code))
+
+    cursor.execute('INSERT INTO used_nonces (nonce, used_at) VALUES (?, ?)', (nonce, current_time))
+
+    # Grava no Ledger criptografado
+    encrypted_data = cpu_10000bytes.execute_aes_encrypt(payload_json.encode('utf-8'), os.urandom(12))
+
+    cursor.execute('SELECT block_index, block_hash FROM ledger ORDER BY block_index DESC LIMIT 1')
+    last_block = cursor.fetchone()
+    new_index = last_block[0] + 1
+    new_timestamp = time.time()
+
+    block_string = json.dumps({
+        "index": new_index, "timestamp": new_timestamp,
+        "payload": encrypted_data, "previous_hash": last_block[1]
+    }, sort_keys=True, separators=(',', ':'))
+
+    new_block_hash = cpu_10000bytes.execute_custom_hash(block_string)
+
+    cursor.execute('''
+    INSERT INTO ledger (block_index, timestamp, payload, previous_hash, block_hash)
+    VALUES (?, ?, ?, ?, ?)
+    ''', (new_index, new_timestamp, json.dumps(encrypted_data), last_block[1], new_block_hash))
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "status": "200 OK",
+        "mensagem": "Transferência soberana processada e registrada com sucesso!",
+        "bloco_indice": new_index,
+        "bloco_hash": new_block_hash
+    }
+
+
+@app.get("/api/v1/audit/chain", summary="Consultar cadeia completa do Ledger")
+async def get_audit_chain():
+    conn = get_db_connection()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute('SELECT block_index, timestamp, payload, previous_hash, block_hash FROM ledger ORDER BY block_index ASC')
+    rows = cursor.fetchall()
+
+    lista_ledger = []
+    for row in rows:
+        try:
+            conteudo = json.loads(row["payload"])
+        except:
+            conteudo = row["payload"]
+        lista_ledger.append({
+            "indice": row["block_index"],
+            "tempo": row["timestamp"],
+            "conteudo": conteudo,
+            "anterior_hash": row["previous_hash"],
+            "bloco_hash": row["block_hash"]
+        })
+    conn.close()
+    return {"tamanho_cadeia": len(lista_ledger), "registros": lista_ledger}
+
+
+# === LINHA FINAL QUE LIGA O SERVIDOR ===
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
