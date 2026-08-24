@@ -1,21 +1,21 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 import os
-import time
 from datetime import datetime
 
 app = FastAPI()
 
-# ─── DADOS DO CANAL / SERVIDOR ───
+# ─── DADOS DO CANAL / SERVIDOR — TUDO IGUAL ───
 NOME_CANAL = "Seu Canal"
-STATUS_TRANSMISSAO =TRUE
+STATUS_TRANSMISSAO = True  # ✅ T MAIÚSCULO — ONLINE CERTO!
+
 ESPECTADORES = {}
 
 COMANDOS = {
     "!ajuda": "Lista de comandos disponíveis: !ajuda, !regras, !horario, !status",
     "!regras": "📜 Regras: Respeito, educação, proibido spam e links inadequados.",
     "!horario": "🕒 Transmissões: Terça a Sábado, a partir das 19h.",
-    "!status": None  # Dinâmico
+    "!status": None
 }
 
 MENSAGENS_BOAS_VINDAS = [
@@ -24,7 +24,7 @@ MENSAGENS_BOAS_VINDAS = [
     "Bem-vindo(a)! É ótimo te ver aqui! ✨"
 ]
 
-# ─── ROTAS PRINCIPAIS ───
+# ─── ROTAS PRINCIPAIS — TUDO PRESERVADO ───
 @app.get("/", response_class=HTMLResponse)
 async def pagina_inicial():
     status_cor = "🟢 ONLINE" if STATUS_TRANSMISSAO else "🔴 OFFLINE"
@@ -53,12 +53,13 @@ async def status_servidor():
 async def listar_comandos():
     return {"comandos": list(COMANDOS.keys())}
 
-# ─── INICIALIZAÇÃO — PORTA DINÂMICA ───
+# ─── NOVO: HEALTH CHECK — AJUDA O RENDER A MANTER LIGADO ───
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+# ─── INICIALIZAÇÃO — PORTA AUTOMÁTICA PARA RENDER E LOCAL ───
 if __name__ == "__main__":
     import uvicorn
-    # Render define a porta automaticamente; local usa 8000
     porta = int(os.getenv("PORT", 8000))
-    print(f"🚀 Iniciando servidor...")
-    print(f"📍 Modo local: http://127.0.0.1:{porta}")
-    print(f"🌐 Render: URL do serviço (sem porta no final)")
     uvicorn.run("main:app", host="0.0.0.0", port=porta)
