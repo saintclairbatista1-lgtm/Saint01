@@ -1,4 +1,3 @@
-# # -*- coding: utf-8 -*-
 """
 Copyright (c) 2026 Saint-Clair Vinícius Batista. Todos os direitos reservados.
 Este código é proprietário e confidencial. É proibida a cópia, 
