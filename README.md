@@ -4,8 +4,9 @@
 # Autor: Saint Clair Vinícius Batista (Saint-Clair / Sancler / Santi)
 # Data: 2026-08-30 | Plataforma: Debian 12 / Pydroid 3 Android
 # Projeto: LEI 2-5 — EYE-SOPH v0.3 (ENTERPRISE CORE)
-# Valor de Aquisição Comercial: $20,000.00 USD
-# ==============================================================
+# Valor de Aquisição Comercial: $20,000.00 USD chave pix:1df82209-184c-40b7-b480-1d67898e7533
+#email: saintclairbatista1@gmail.com
+==============================================================
 # AVISO LEGAL: Este arquivo contém uma versão de demonstração (capada)
 # destinada exclusivamente para testes de interface e validação visual.
 # O motor matemático proprietário, purista e de alta precisão está 
