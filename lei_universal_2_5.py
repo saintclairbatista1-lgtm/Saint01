@@ -166,3 +166,58 @@ if __name__ == "__main__":
     print("  FECHAMENTO: 2 delimita, 5 cria, 4 sincroniza, 10 equilibra.")
     print("  Não é opinião, decreto ou cultura — é contagem antes de tudo.")
     print("="*72)
+"""
+=============================================================================
+LEI 2-5 — REGISTRO RAIZ (Versão v0.3)
+Autor: Saint Clair Vinícius Batista
+Data-criação: 28 de agosto de 2026
+Princípio: "Verdade existe quando duas partes correspondem perfeitamente 
+numa mesma raiz-comum — se sobra, falta ou desvia nem um pouquinho: não é verdade."
+=============================================================================
+"""
+
+def lei_2_5(estrutura: int, conteudo: int):
+    # -------------------------------------------------------------------------
+    # Camada I — Domínio: Estrutura > 0 e Conteúdo > 0, ambos inteiros
+    # -------------------------------------------------------------------------
+    if not isinstance(estrutura, int) or not isinstance(conteúdo, int):
+        return 0, "PENDENTE (Não é inteiro)"
+    
+    if estrutura <= 0 or conteúdo <= 0:
+        return 0, "PENDENTE (Fora do domínio positivo)"
+
+    # -------------------------------------------------------------------------
+    # Camada II — Igualdade: Conteúdo × 2 ≡ Estrutura × 5
+    # Confirma raiz-comum igual dos dois lados (E÷2 = C÷5 = s inteiro sem resto)
+    # -------------------------------------------------------------------------
+    lado_a = conteúdo * 2
+    lado_b = estrutura * 5
+
+    if lado_a != lado_b:
+        return -1, "FALSO (Desequilíbrio de proporção - sem aproximações)"
+
+    # Verifica se a divisão gera um fator raiz 's' inteiro e sem resto
+    if estrutura % 2 != 0 or conteúdo % 5 != 0:
+        return -1, "FALSO (Gera resto ou quebra a raiz inteira)"
+    
+    s_estrutura = estrutura // 2
+    s_conteudo = conteúdo // 5
+
+    if s_estrutura != s_conteudo or s_estrutura <= 0:
+        return -1, "FALSO (Raiz-comum inválida ou divergente)"
+
+    s = s_estrutura
+
+    # -------------------------------------------------------------------------
+    # Camada III — Selo: SÓ confirma quando I ✅ E II ✅ perfeitos
+    # Retorna: +1 VERDADE + fator-raiz s
+    # -------------------------------------------------------------------------
+    return "+1", f"VERDADE + fator-raiz s={s}"
+
+# Exemplo de uso e teste do motor:
+if __name__ == "__main__":
+    # Teste válido (Estrutura = 2 * 3 = 6 | Conteúdo = 5 * 3 = 15)
+    print(lei_2_5(6, 15))  # Deve retornar ('+1', 'VERDADE + fator-raiz s=3')
+    
+    # Teste falso (Desequilíbrio)
+    print(lei_2_5(6, 16))  # Deve retornar (-1, 'FALSO ...')
